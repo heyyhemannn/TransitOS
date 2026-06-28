@@ -1,5 +1,6 @@
 import { Client, LocalAuth, MessageMedia } from 'whatsapp-web.js';
 import QRCode from 'qrcode';
+import type { Response as ExpressResponse } from 'express';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { MessageType, MessageStatus } from '@prisma/client';
@@ -7,7 +8,34 @@ import { MessageType, MessageStatus } from '@prisma/client';
 let whatsappClient: Client | null = null;
 let qrCodeBase64: string | null = null;
 let isConnected = false;
+let isConnecting = false;
 let clientPhone: string | null = null;
+
+// SSE clients registry — push real-time status to all open browser tabs
+const sseClients: Set<ExpressResponse> = new Set();
+
+function broadcastSSE(event: string, data: object) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of sseClients) {
+    try {
+      res.write(payload);
+    } catch {
+      sseClients.delete(res);
+    }
+  }
+}
+
+export function registerSSEClient(res: ExpressResponse) {
+  sseClients.add(res);
+}
+
+export function unregisterSSEClient(res: ExpressResponse) {
+  sseClients.delete(res);
+}
+
+export function getWhatsAppConnecting(): boolean {
+  return isConnecting;
+}
 
 export const TEMPLATES: Record<MessageType, string> = {
   [MessageType.REMINDER_1]:
@@ -74,9 +102,12 @@ export async function initWhatsApp(): Promise<void> {
 
   whatsappClient.on('qr', async (qr) => {
     logger.info('WhatsApp QR Code generated.');
+    isConnecting = true;
     try {
       // Generate a base64 PNG data URL
       qrCodeBase64 = await QRCode.toDataURL(qr);
+      // Push new QR to all open browser tabs via SSE
+      broadcastSSE('qr', { qr: qrCodeBase64 });
     } catch (err) {
       logger.error('Failed to convert QR code to base64:', err);
     }
@@ -84,32 +115,43 @@ export async function initWhatsApp(): Promise<void> {
 
   whatsappClient.on('ready', () => {
     isConnected = true;
+    isConnecting = false;
     qrCodeBase64 = null;
     clientPhone = whatsappClient?.info.wid.user ?? null;
     logger.info(`WhatsApp client is ready. Connected as: ${clientPhone}`);
+    // Immediately push connected state to all open browser tabs
+    broadcastSSE('status', { connected: true, phone: clientPhone });
   });
 
   whatsappClient.on('authenticated', () => {
     logger.info('WhatsApp client successfully authenticated.');
+    // Push authenticated (in-progress) state — still not fully ready yet
+    broadcastSSE('status', { connected: false, phone: null, authenticating: true });
   });
 
   whatsappClient.on('auth_failure', (msg) => {
     logger.error('WhatsApp authentication failed:', msg);
     isConnected = false;
+    isConnecting = false;
     qrCodeBase64 = null;
+    broadcastSSE('status', { connected: false, phone: null, error: 'Authentication failed' });
   });
 
   whatsappClient.on('disconnected', (reason) => {
     logger.warn(`WhatsApp client was disconnected: ${reason}`);
     isConnected = false;
+    isConnecting = false;
     clientPhone = null;
     qrCodeBase64 = null;
+    broadcastSSE('status', { connected: false, phone: null, reason });
 
     // Retry connection after 10 seconds
     setTimeout(() => {
       if (whatsappClient) {
         logger.info('Attempting to re-initialize WhatsApp client...');
+        isConnecting = true;
         whatsappClient.initialize().catch((err) => {
+          isConnecting = false;
           logger.error('Failed to re-initialize WhatsApp client:', err);
         });
       }

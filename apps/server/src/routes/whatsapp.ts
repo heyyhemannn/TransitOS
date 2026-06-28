@@ -7,9 +7,12 @@ import { UserRole, MessageType, StudentStatus } from '@prisma/client';
 import {
   getWhatsAppStatus,
   getWhatsAppQR,
+  getWhatsAppConnecting,
   sendWhatsAppMessage,
   formatTemplate,
   TEMPLATES,
+  registerSSEClient,
+  unregisterSSEClient,
 } from '../services/whatsappService';
 import { logger } from '../lib/logger';
 
@@ -46,7 +49,54 @@ whatsappRouter.get(
     const status = getWhatsAppStatus();
     res.json({
       success: true,
-      data: status,
+      data: {
+        ...status,
+        connecting: getWhatsAppConnecting(),
+      },
+    });
+  },
+);
+
+/**
+ * GET /api/v1/whatsapp/events
+ * Server-Sent Events stream — pushes real-time status and QR updates to the browser.
+ * The frontend subscribes to this and immediately reflects QR scan / connect / disconnect.
+ */
+whatsappRouter.get(
+  '/events',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  (req: Request, res: Response): void => {
+    // SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable Nginx buffering
+    res.flushHeaders();
+
+    // Register this client
+    registerSSEClient(res);
+
+    // Send current state immediately on connect
+    const currentStatus = getWhatsAppStatus();
+    const currentQR = getWhatsAppQR();
+    res.write(`event: status\ndata: ${JSON.stringify({ ...currentStatus, connecting: getWhatsAppConnecting() })}\n\n`);
+    if (currentQR) {
+      res.write(`event: qr\ndata: ${JSON.stringify({ qr: currentQR })}\n\n`);
+    }
+
+    // Send periodic heartbeat to keep the connection alive through proxies
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+      } catch {
+        clearInterval(heartbeat);
+      }
+    }, 20000);
+
+    // Clean up on client disconnect
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unregisterSSEClient(res);
     });
   },
 );
