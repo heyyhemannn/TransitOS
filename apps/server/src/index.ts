@@ -98,6 +98,26 @@ app.get('/', (_req, res) => {
   });
 });
 
+import fs from 'fs';
+import path from 'path';
+
+// Temporary debug route to inspect container logs
+app.get(`${API_PREFIX}/debug/logs`, (_req, res) => {
+  try {
+    const logPath = path.resolve(process.cwd(), 'logs/combined.log');
+    if (fs.existsSync(logPath)) {
+      const logs = fs.readFileSync(logPath, 'utf-8');
+      const lines = logs.trim().split('\n');
+      const last150 = lines.slice(-150).join('\n');
+      res.type('text/plain').send(last150);
+    } else {
+      res.status(404).send('No combined.log file found');
+    }
+  } catch (err: any) {
+    res.status(500).send(`Error reading logs: ${err.message}`);
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 404 HANDLER
 // ─────────────────────────────────────────────────────────────────────────────
