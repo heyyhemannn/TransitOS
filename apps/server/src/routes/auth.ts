@@ -107,7 +107,7 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response, 
     // Set refresh token in httpOnly cookie
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       secure: process.env.NODE_ENV === 'production',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
@@ -213,7 +213,7 @@ authRouter.post('/refresh', async (req: Request, res: Response, next: NextFuncti
     // Set rotated cookie
     res.cookie('refreshToken', newRefreshToken, {
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       secure: process.env.NODE_ENV === 'production',
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });
@@ -253,7 +253,7 @@ authRouter.post('/logout', async (req: Request, res: Response, next: NextFunctio
 
     res.clearCookie('refreshToken', {
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       secure: process.env.NODE_ENV === 'production',
     });
 
