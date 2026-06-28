@@ -378,7 +378,7 @@ export default function WhatsAppPage() {
                   <span className="font-semibold text-foreground">Linked Devices</span> → scan QR.
                   <br />
                   <span className="text-amber-600 dark:text-amber-400 mt-1 block">
-                    ⚠ QR expires in ~20s. The page will auto-refresh it.
+                    ⚠ QR code refreshes every ~60s. Scan using Linked Devices.
                   </span>
                 </div>
               </div>

@@ -6,6 +6,7 @@ import { requireRole } from '../middleware/rbac';
 import { UserRole, MessageType, StudentStatus } from '@prisma/client';
 import {
   getWhatsAppStatus,
+  syncWhatsAppStatus,
   getWhatsAppQR,
   getWhatsAppConnecting,
   sendWhatsAppMessage,
@@ -45,8 +46,8 @@ const broadcastSchema = z.object({
 whatsappRouter.get(
   '/status',
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
-  (req: Request, res: Response): void => {
-    const status = getWhatsAppStatus();
+  async (req: Request, res: Response): Promise<void> => {
+    const status = await syncWhatsAppStatus();
     res.json({
       success: true,
       data: {

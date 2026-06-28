@@ -177,10 +177,45 @@ export function getWhatsAppQR(): string | null {
  * Get the current connection status of the WhatsApp client
  */
 export function getWhatsAppStatus(): { connected: boolean; phone: string | null } {
+  if (whatsappClient && whatsappClient.info && whatsappClient.info.wid) {
+    isConnected = true;
+    isConnecting = false;
+    qrCodeBase64 = null;
+    clientPhone = whatsappClient.info.wid.user;
+  }
   return {
     connected: isConnected,
     phone: clientPhone,
   };
+}
+
+/**
+ * Actively query Puppeteer / WhatsApp Web client to synchronize state
+ */
+export async function syncWhatsAppStatus(): Promise<{ connected: boolean; phone: string | null }> {
+  if (whatsappClient) {
+    try {
+      if (whatsappClient.info && whatsappClient.info.wid) {
+        isConnected = true;
+        isConnecting = false;
+        qrCodeBase64 = null;
+        clientPhone = whatsappClient.info.wid.user;
+      } else {
+        const state = await whatsappClient.getState();
+        if (state === 'CONNECTED') {
+          isConnected = true;
+          isConnecting = false;
+          qrCodeBase64 = null;
+          if (whatsappClient.info?.wid?.user) {
+            clientPhone = whatsappClient.info.wid.user;
+          }
+        }
+      }
+    } catch (err) {
+      // client might not be ready for getState yet
+    }
+  }
+  return getWhatsAppStatus();
 }
 
 /**
