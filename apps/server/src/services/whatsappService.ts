@@ -28,12 +28,21 @@ const baileysLogger = P(
         const time = parsed.time ? new Date(parsed.time).toISOString() : new Date().toISOString();
         const levelVal = parsed.level;
         const levelName = levelVal === 30 ? 'INFO' : levelVal === 40 ? 'WARN' : levelVal >= 50 ? 'ERROR' : 'DEBUG';
-        const formattedMsg = `${time} [${levelName}]: ${parsed.msg || ''} ${parsed.err ? JSON.stringify(parsed.err) : ''}`;
+        
+        const extra: Record<string, any> = {};
+        for (const [key, val] of Object.entries(parsed)) {
+          if (!['level', 'time', 'msg', 'pid', 'hostname', 'service', 'v'].includes(key)) {
+            extra[key] = val;
+          }
+        }
+        
+        const extraStr = Object.keys(extra).length > 0 ? ` | Extra: ${JSON.stringify(extra)}` : '';
+        const formattedMsg = `${time} [${levelName}]: ${parsed.msg || ''}${extraStr}`;
         baileysLogsBuffer.push(formattedMsg);
       } catch {
         baileysLogsBuffer.push(msg.trim());
       }
-      if (baileysLogsBuffer.length > 300) {
+      if (baileysLogsBuffer.length > 500) {
         baileysLogsBuffer.shift();
       }
     }
