@@ -370,3 +370,18 @@ export function sendBroadcast(
     logger.error('Uncaught error in WhatsApp broadcast handler:', err);
   });
 }
+
+/**
+ * Exposes internal WhatsApp state for debugging
+ */
+export function getWhatsAppDebugInfo() {
+  return {
+    socketExists: !!waSocket,
+    user: waSocket?.user ? { id: waSocket.user.id, name: waSocket.user.name } : null,
+    isConnected,
+    isConnecting,
+    clientPhone,
+    qrLength: qrCodeBase64 ? qrCodeBase64.length : 0,
+    sessionFiles: fs.existsSync(AUTH_DIR) ? fs.readdirSync(AUTH_DIR) : [],
+  };
+}
