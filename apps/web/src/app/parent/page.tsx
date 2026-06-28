@@ -124,9 +124,11 @@ export default function ParentLookupPortal() {
         <Card className="w-full max-w-md border-slate-800/80 bg-slate-900/60 backdrop-blur-xl shadow-2xl z-10 transition-all duration-300">
           <CardHeader className="text-center pb-4">
             <div className="flex justify-center mb-3">
-              <div className="h-16 w-16 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center border border-blue-500/20">
-                <img src="/logo.png" alt="TransitOS Logo" className="h-10 w-10 object-contain" />
-              </div>
+              <img
+                src="/transitOS_compact_hero.svg"
+                alt="Hemanth's Transport Services"
+                className="w-48 h-auto object-contain"
+              />
             </div>
             <CardTitle className="text-2xl font-extrabold tracking-tight text-slate-100">
               Track Transport Fees

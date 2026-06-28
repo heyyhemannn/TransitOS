@@ -123,7 +123,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const activeItem = ALL_NAV_ITEMS.find(
       (item) => pathname === item.href || pathname?.startsWith(item.href + '/'),
     );
-    return activeItem ? activeItem.name : 'School Transport';
+    return activeItem ? activeItem.name : "Hemanth's Transport";
   };
 
   // Filter nav items based on role
@@ -205,12 +205,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           )}
         >
           {/* Sidebar Header */}
-          <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center' : 'gap-2 px-6')}>
-            <img src="/logo.png" alt="TransitOS Logo" className="h-8 w-8 shrink-0 object-contain" />
-            {!collapsed && (
-              <span className="text-lg font-black tracking-tight bg-gradient-to-r from-primary to-indigo-600 bg-clip-text text-transparent">
-                TransitOS
-              </span>
+          <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center' : 'gap-2 px-4')}>
+            {collapsed ? (
+              <img src="/transitOS_compact_hero.svg" alt="TransitOS" className="h-7 w-7 shrink-0 object-contain" />
+            ) : (
+              <img
+                src="/transitOS_compact_hero.svg"
+                alt="Hemanth's Transport Services"
+                className="h-8 w-auto max-w-[148px] object-contain shrink-0"
+              />
             )}
           </div>
 
@@ -277,10 +280,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {/* Mobile header */}
               <div className="flex h-14 items-center justify-between border-b px-5">
                 <div className="flex items-center gap-2">
-                  <img src="/logo.png" alt="TransitOS Logo" className="h-7 w-7 object-contain" />
-                  <span className="text-base font-black tracking-tight bg-gradient-to-r from-primary to-indigo-600 bg-clip-text text-transparent">
-                    TransitOS
-                  </span>
+                  <img
+                    src="/transitOS_compact_hero.svg"
+                    alt="Hemanth's Transport Services"
+                    className="h-7 w-auto max-w-[130px] object-contain"
+                  />
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)}>
                   <X className="h-5 w-5" />

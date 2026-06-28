@@ -121,7 +121,7 @@ export default function ParentConfirmPage() {
           </div>
 
           <p className="text-xs text-slate-500 leading-relaxed">
-            The administrator of <strong>Hemanth Transport Services</strong> will verify this reference and release your official PDF receipt on WhatsApp shortly.
+            The administrator of <strong>Hemanth's Transport Services</strong> will verify this reference and release your official PDF receipt on WhatsApp shortly.
           </p>
         </Card>
       ) : (
@@ -133,7 +133,7 @@ export default function ParentConfirmPage() {
               </div>
             </div>
             <CardTitle className="text-lg font-black tracking-tight text-slate-100">
-              Hemanth Transport Services
+              Hemanth's Transport Services
             </CardTitle>
             <CardDescription className="text-slate-400">
               Submit your UPI transaction details to verify your transport fee payment

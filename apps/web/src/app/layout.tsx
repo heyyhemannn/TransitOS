@@ -19,13 +19,13 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'TransitOS — School Transport Management',
+    default: "TransitOS — Hemanth's Transport Services",
     template: '%s | TransitOS',
   },
   description:
-    'Production-grade School Transport Management System for managing students, routes, payments, and WhatsApp notifications.',
-  keywords: ['school transport', 'student management', 'fee collection', 'route management'],
-  authors: [{ name: 'TransitOS' }],
+    "Hemanth's Transport Services — manage students, routes, fee collections, and WhatsApp notifications.",
+  keywords: ['transport management', 'student management', 'fee collection', 'route management'],
+  authors: [{ name: "Hemanth's Transport Services" }],
   robots: { index: false, follow: false }, // private SaaS app
 };
 

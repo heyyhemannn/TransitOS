@@ -73,10 +73,11 @@ export default function LoginPage() {
       <div className="z-10 w-full max-w-md">
         {/* Brand header */}
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-2">
-            <img src="/logo.png" alt="TransitOS Logo" className="h-28 w-28 object-contain" />
-          </div>
-          <p className="text-sm text-slate-400">School Transport Management System</p>
+          <img
+            src="/transitOS_compact_hero.svg"
+            alt="Hemanth's Transport Services — TransitOS"
+            className="w-full max-w-xs object-contain mb-1"
+          />
         </div>
 
         {/* Login form card */}

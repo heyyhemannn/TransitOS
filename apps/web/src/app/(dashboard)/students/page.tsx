@@ -552,7 +552,7 @@ export default function StudentsPage() {
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>Register Student</DialogTitle>
-            <DialogDescription>Create a new school transport profile</DialogDescription>
+            <DialogDescription>Create a new student transport profile</DialogDescription>
           </DialogHeader>
 
           <form

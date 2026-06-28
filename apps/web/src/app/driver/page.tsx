@@ -139,10 +139,11 @@ export default function DriverDashboard() {
       {/* HEADER */}
       <header className="sticky top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="TransitOS Logo" className="h-8 w-8 object-contain" />
-          <span className="text-lg font-black tracking-tight bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-            TransitOS
-          </span>
+          <img
+            src="/transitOS_compact_hero.svg"
+            alt="Hemanth's Transport Services"
+            className="h-8 w-auto max-w-[130px] object-contain"
+          />
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs font-semibold text-slate-300 bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700">
