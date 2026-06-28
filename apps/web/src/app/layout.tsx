@@ -27,6 +27,9 @@ export const metadata: Metadata = {
   keywords: ['transport management', 'student management', 'fee collection', 'route management'],
   authors: [{ name: "Hemanth's Transport Services" }],
   robots: { index: false, follow: false }, // private SaaS app
+  icons: {
+    icon: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

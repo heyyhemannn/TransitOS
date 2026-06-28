@@ -127,7 +127,7 @@ export default function ParentLookupPortal() {
               <img
                 src="/transitOS_compact_hero.svg"
                 alt="Hemanth's Transport Services"
-                className="w-48 h-auto object-contain"
+                className="w-[260px] h-auto object-contain"
               />
             </div>
             <CardTitle className="text-2xl font-extrabold tracking-tight text-slate-100">

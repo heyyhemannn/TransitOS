@@ -76,7 +76,7 @@ export default function LoginPage() {
           <img
             src="/transitOS_compact_hero.svg"
             alt="Hemanth's Transport Services — TransitOS"
-            className="w-full max-w-xs object-contain mb-1"
+            className="w-full max-w-[380px] object-contain mb-1"
           />
         </div>
 
