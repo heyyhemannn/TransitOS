@@ -85,10 +85,17 @@ app.use(`${API_PREFIX}/settings`, authenticate, settingsRouter);
 app.use(`${API_PREFIX}/driver`, authenticate, driverRouter);
 app.use(`${API_PREFIX}/parent`, parentRouter); // Public — no authenticate
 
+app.get([API_PREFIX, `${API_PREFIX}/`], (_req, res) => {
+  res.json({
+    success: true,
+    message: "🚀 TransitOS (Hemanth's Transport Services) API Gateway is online. Prefix endpoints with /api/v1",
+  });
+});
+
 app.get('/', (_req, res) => {
   res.json({
     success: true,
-    message: '🚀 STMS API Gateway is online and active. Prefix endpoints with /api/v1',
+    message: "🚀 TransitOS (Hemanth's Transport Services) API Gateway is online. Prefix endpoints with /api/v1",
   });
 });
 
