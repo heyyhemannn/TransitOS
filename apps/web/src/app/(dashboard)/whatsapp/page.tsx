@@ -34,6 +34,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { useAuthStore } from '@/lib/auth';
 import { usePageRole } from '../layout';
 
 const testMessageSchema = z.object({
@@ -54,6 +55,7 @@ export default function WhatsAppPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { canMutate } = usePageRole();
+  const storeToken = useAuthStore((s) => s.accessToken);
 
   // Local SSE-driven state (source of truth for real-time updates)
   const [liveStatus, setLiveStatus] = React.useState<WAStatus | null>(null);
@@ -71,15 +73,10 @@ export default function WhatsAppPage() {
   React.useEffect(() => {
     // Build the SSE URL using the same base as the API
     const base = process.env.NEXT_PUBLIC_API_URL || '';
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken')
-        : null;
+    const token = storeToken || useAuthStore.getState().accessToken;
 
     // EventSource does not support custom headers natively.
     // We use a URL query param to pass the token for the SSE connection.
-    // The backend should accept ?token= for SSE routes.
-    // As a fallback, we still rely on cookie-based auth if JWT is in cookie.
     const url = `${base}/whatsapp/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
     let es: EventSource;
