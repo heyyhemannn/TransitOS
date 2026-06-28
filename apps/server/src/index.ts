@@ -12,6 +12,8 @@ import { paymentsRouter } from './routes/payments';
 import { whatsappRouter } from './routes/whatsapp';
 import { reportsRouter } from './routes/reports';
 import { settingsRouter } from './routes/settings';
+import { driverRouter } from './routes/driver';
+import { parentRouter } from './routes/parent';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { authenticate } from './middleware/auth';
@@ -33,7 +35,11 @@ app.use(
 
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
+    origin: [
+      'https://transitos.vercel.app',
+      'http://localhost:3000',
+      process.env.CORS_ORIGIN ?? '',
+    ].filter(Boolean),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -76,6 +82,8 @@ app.use(`${API_PREFIX}/payments`, authenticate, paymentsRouter);
 app.use(`${API_PREFIX}/whatsapp`, authenticate, whatsappRouter);
 app.use(`${API_PREFIX}/reports`, authenticate, reportsRouter);
 app.use(`${API_PREFIX}/settings`, authenticate, settingsRouter);
+app.use(`${API_PREFIX}/driver`, authenticate, driverRouter);
+app.use(`${API_PREFIX}/parent`, parentRouter); // Public — no authenticate
 
 app.get('/', (_req, res) => {
   res.json({

@@ -58,7 +58,7 @@ const webhookSchema = z.object({
  */
 paymentsRouter.get(
   '/',
-  requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DRIVER),
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -260,7 +260,7 @@ paymentsRouter.post(
  */
 paymentsRouter.post(
   '/import-csv',
-  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  requireRole(UserRole.ADMIN),
   upload.single('file'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

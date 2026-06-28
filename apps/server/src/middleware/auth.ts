@@ -20,7 +20,9 @@ export async function authenticate(
       req.path?.endsWith('/send-demo') ||
       req.originalUrl?.endsWith('/send-demo') ||
       req.path?.endsWith('/parent-confirm') ||
-      req.originalUrl?.endsWith('/parent-confirm')
+      req.originalUrl?.endsWith('/parent-confirm') ||
+      req.path?.endsWith('/parent/lookup') ||
+      req.originalUrl?.endsWith('/parent/lookup')
     ) {
       return next();
     }

@@ -171,7 +171,7 @@ studentsRouter.get(
  */
 studentsRouter.post(
   '/',
-  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  requireRole(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const body = createStudentSchema.parse(req.body);
@@ -284,7 +284,7 @@ studentsRouter.get(
  */
 studentsRouter.put(
   '/:id',
-  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  requireRole(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
@@ -344,7 +344,7 @@ studentsRouter.put(
  */
 studentsRouter.delete(
   '/:id',
-  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  requireRole(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;

@@ -14,6 +14,7 @@ export const routesRouter = Router();
 const createRouteSchema = z.object({
   name: z.string().min(2, 'Route name must be at least 2 characters'),
   driverName: z.string().optional().nullable(),
+  driverId: z.string().optional().nullable(),
   vehicleNumber: z.string().optional().nullable(),
 });
 
@@ -104,10 +105,20 @@ routesRouter.post(
         return;
       }
 
+      // Validate driverId: must be a DRIVER-role user if provided
+      if (body.driverId) {
+        const driverUser = await prisma.user.findUnique({ where: { id: body.driverId } });
+        if (!driverUser || driverUser.role !== UserRole.DRIVER) {
+          res.status(400).json({ success: false, error: 'Provided driverId must reference an active DRIVER user' });
+          return;
+        }
+      }
+
       const route = await prisma.route.create({
         data: {
           name: body.name,
           driverName: body.driverName || null,
+          driverId: body.driverId || null,
           vehicleNumber: body.vehicleNumber || null,
           isActive: true,
         },
@@ -169,11 +180,26 @@ routesRouter.put(
         }
       }
 
+      // Validate driverId if being set
+      if (body.driverId !== undefined && body.driverId !== null) {
+        const driverUser = await prisma.user.findUnique({ where: { id: body.driverId } });
+        if (!driverUser || driverUser.role !== UserRole.DRIVER) {
+          res.status(400).json({ success: false, error: 'Provided driverId must reference an active DRIVER user' });
+          return;
+        }
+        // Remove this driver from any other route they were previously assigned to
+        await prisma.route.updateMany({
+          where: { driverId: body.driverId, id: { not: id } },
+          data: { driverId: null },
+        });
+      }
+
       const updatedRoute = await prisma.route.update({
         where: { id },
         data: {
           name: body.name,
           driverName: body.driverName !== undefined ? body.driverName : undefined,
+          driverId: body.driverId !== undefined ? body.driverId : undefined,
           vehicleNumber: body.vehicleNumber !== undefined ? body.vehicleNumber : undefined,
         },
         include: {
@@ -265,7 +291,7 @@ routesRouter.delete(
  */
 routesRouter.post(
   '/:id/assign',
-  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  requireRole(UserRole.ADMIN),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const body = assignRouteSchema.parse(req.body);

@@ -19,7 +19,7 @@ const updateSettingsSchema = z.object({
  */
 settingsRouter.get(
   '/',
-  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DRIVER),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const settings = await prisma.settings.findMany();
@@ -34,6 +34,8 @@ settingsRouter.get(
       const responseData = {
         businessName: settingsMap['businessName'] || 'Sri Sai Travels',
         upiId: settingsMap['upiId'] || 'yourupi@upi',
+        adminWhatsapp: settingsMap['adminWhatsapp'] || '9848022338',
+        adminPhone: settingsMap['adminPhone'] || '9848022338',
       };
 
       res.json({

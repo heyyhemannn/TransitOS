@@ -17,28 +17,46 @@ import {
   Moon,
   Menu,
   X,
-  Bus,
+  ChevronLeft,
+  ChevronRight,
+  ShieldAlert,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth';
+import { useRoleAccess, canAccess, type AppRole } from '@/lib/role-access';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { useTheme } from 'next-themes';
 
+// ─── Role Context ──────────────────────────────────────────────────────────────
+interface RoleContextValue {
+  canMutate: boolean;
+  isAdmin: boolean;
+  isManager: boolean;
+}
+export const RoleContext = React.createContext<RoleContextValue>({
+  canMutate: true,
+  isAdmin: false,
+  isManager: false,
+});
+export const usePageRole = () => React.useContext(RoleContext);
+
+// ─── Navigation config ─────────────────────────────────────────────────────────
 interface SidebarItem {
   name: string;
+  path: string; // matches ROLE_NAV_ACCESS keys
   href: string;
   icon: React.ComponentType<{ className?: string }>;
 }
 
-const navigationItems: SidebarItem[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Students', href: '/students', icon: Users },
-  { name: 'Routes', href: '/routes', icon: RouteIcon },
-  { name: 'Payments', href: '/payments', icon: CreditCard },
-  { name: 'WhatsApp', href: '/whatsapp', icon: MessageSquare },
-  { name: 'Reports', href: '/reports', icon: BarChart },
-  { name: 'Settings', href: '/settings', icon: SettingsIcon },
+const ALL_NAV_ITEMS: SidebarItem[] = [
+  { name: 'Dashboard', path: 'dashboard',  href: '/dashboard',  icon: LayoutDashboard },
+  { name: 'Students',  path: 'students',   href: '/students',   icon: Users },
+  { name: 'Routes',    path: 'routes',     href: '/routes',     icon: RouteIcon },
+  { name: 'Payments',  path: 'payments',   href: '/payments',   icon: CreditCard },
+  { name: 'WhatsApp',  path: 'whatsapp',   href: '/whatsapp',   icon: MessageSquare },
+  { name: 'Reports',   path: 'reports',    href: '/reports',    icon: BarChart },
+  { name: 'Settings',  path: 'settings',   href: '/settings',   icon: SettingsIcon },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -46,16 +64,45 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const { user, logout, accessToken } = useAuthStore();
   const { theme, setTheme } = useTheme();
+  const { canMutate, isAdmin, isManager, allowedPaths, role } = useRoleAccess();
+
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const [collapsed, setCollapsed] = React.useState(false);
+
+  // Touch swipe to close mobile menu
+  const touchStartX = React.useRef<number>(0);
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const dx = touchStartX.current - e.changedTouches[0].clientX;
+    if (dx > 60) setMobileMenuOpen(false); // swipe left to close
+  };
 
   // Redirect if not logged in
   React.useEffect(() => {
     if (!accessToken) {
       router.push('/login');
+      return;
     }
-  }, [accessToken, router]);
+    // Redirect drivers to their own portal
+    if (role === 'DRIVER') {
+      router.replace('/driver');
+    }
+  }, [accessToken, role, router]);
 
-  // Query WhatsApp connection status periodically
+  // Redirect if current page is forbidden for this role
+  React.useEffect(() => {
+    if (!role || role === 'DRIVER') return;
+    const currentPath = ALL_NAV_ITEMS.find(
+      (item) => pathname === item.href || pathname?.startsWith(item.href + '/')
+    );
+    if (currentPath && !canAccess(role as AppRole, currentPath.path)) {
+      router.replace('/dashboard');
+    }
+  }, [pathname, role, router]);
+
+  // WhatsApp status poll
   const { data: waStatus } = useQuery({
     queryKey: ['whatsapp-status'],
     queryFn: async () => {
@@ -64,8 +111,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       );
       return res.data.data;
     },
-    enabled: !!accessToken,
-    refetchInterval: 15000, // Sync status every 15s
+    enabled: !!accessToken && role === 'ADMIN',
+    refetchInterval: 15000,
   });
 
   const handleLogout = async () => {
@@ -73,11 +120,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const getPageTitle = () => {
-    const activeItem = navigationItems.find((item) => pathname?.startsWith(item.href));
+    const activeItem = ALL_NAV_ITEMS.find(
+      (item) => pathname === item.href || pathname?.startsWith(item.href + '/'),
+    );
     return activeItem ? activeItem.name : 'School Transport';
   };
 
-  if (!accessToken || !user) {
+  // Filter nav items based on role
+  const navItems = role
+    ? ALL_NAV_ITEMS.filter((item) => canAccess(role as AppRole, item.path))
+    : ALL_NAV_ITEMS;
+
+  if (!accessToken || !user || role === 'DRIVER') {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">
         <div className="flex flex-col items-center gap-4">
@@ -88,177 +142,237 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          DESKTOP SIDEBAR
-          ───────────────────────────────────────────────────────────────────────────── */}
-      <aside className="hidden border-r bg-card md:flex md:w-64 md:flex-col">
-        {/* Sidebar Header */}
-        <div className="flex h-16 items-center gap-2 border-b px-6">
-          <img src="/logo.png" alt="TransitOS Logo" className="h-8 w-8 object-contain" />
-          <span className="text-lg font-black tracking-tight bg-gradient-to-r from-primary to-indigo-600 bg-clip-text text-transparent">
-            TransitOS
-          </span>
+  // ─── Shared nav link renderer ────────────────────────────────────────────────
+  const NavLink = ({ item, onClick }: { item: SidebarItem; onClick?: () => void }) => {
+    const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
+    return (
+      <Link
+        key={item.name}
+        href={item.href}
+        onClick={onClick}
+        title={collapsed ? item.name : undefined}
+        className={cn(
+          'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
+          collapsed ? 'justify-center px-2' : '',
+          isActive
+            ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        )}
+      >
+        <item.icon className="h-4 w-4 shrink-0" />
+        {!collapsed && <span>{item.name}</span>}
+      </Link>
+    );
+  };
+
+  // ─── User profile card ────────────────────────────────────────────────────────
+  const UserCard = ({ compact = false }: { compact?: boolean }) => (
+    <div className={cn('flex items-center gap-3 rounded-lg bg-accent/40 p-3', compact && 'justify-center p-2')}>
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-primary text-sm">
+        {user.name.charAt(0).toUpperCase()}
+      </div>
+      {!compact && (
+        <div className="flex-1 overflow-hidden">
+          <div className="truncate text-sm font-bold text-foreground">{user.name}</div>
+          <div className="truncate text-xs text-muted-foreground">{user.role}</div>
         </div>
+      )}
+      {!compact && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleLogout}
+          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+          title="Sign Out"
+        >
+          <LogOut className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  );
 
-        {/* Sidebar Links */}
-        <nav className="flex-1 space-y-1 px-4 py-6">
-          {navigationItems.map((item) => {
-            const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-250',
-                  isActive
-                    ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {item.name}
-              </Link>
-            );
-          })}
-        </nav>
+  return (
+    <RoleContext.Provider value={{ canMutate, isAdmin, isManager }}>
+      <div className="flex h-screen overflow-hidden bg-background">
 
-        {/* User profile segment */}
-        <div className="border-t p-4">
-          <div className="flex items-center gap-3 rounded-lg bg-accent/40 p-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 font-bold text-primary">
-              {user.name.charAt(0).toUpperCase()}
+        {/* ═══════════════════════════════════════════════════════════════
+            DESKTOP SIDEBAR (hidden on mobile)
+        ═══════════════════════════════════════════════════════════════ */}
+        <aside
+          className={cn(
+            'hidden border-r bg-card md:flex md:flex-col transition-all duration-300 ease-in-out',
+            collapsed ? 'md:w-[68px]' : 'md:w-64',
+          )}
+        >
+          {/* Sidebar Header */}
+          <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center' : 'gap-2 px-6')}>
+            <img src="/logo.png" alt="TransitOS Logo" className="h-8 w-8 shrink-0 object-contain" />
+            {!collapsed && (
+              <span className="text-lg font-black tracking-tight bg-gradient-to-r from-primary to-indigo-600 bg-clip-text text-transparent">
+                TransitOS
+              </span>
+            )}
+          </div>
+
+          {/* Manager badge */}
+          {isManager && !collapsed && (
+            <div className="mx-4 mt-3 flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5">
+              <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">View Only</span>
             </div>
-            <div className="flex-1 overflow-hidden">
-              <div className="truncate text-sm font-bold text-foreground">{user.name}</div>
-              <div className="truncate text-xs text-muted-foreground">{user.role}</div>
-            </div>
+          )}
+
+          {/* Sidebar Nav */}
+          <nav className="flex-1 space-y-1 px-3 py-5 overflow-y-auto">
+            {navItems.map((item) => (
+              <NavLink key={item.path} item={item} />
+            ))}
+          </nav>
+
+          {/* Bottom: collapse toggle + user card */}
+          <div className="border-t p-3 space-y-2">
             <Button
               variant="ghost"
-              size="icon"
-              onClick={handleLogout}
-              className="h-8 w-8 text-muted-foreground hover:text-destructive"
-              title="Sign Out"
+              size="sm"
+              onClick={() => setCollapsed(!collapsed)}
+              className={cn('w-full text-muted-foreground hover:text-foreground', collapsed ? 'justify-center px-0' : 'justify-end gap-2')}
             >
-              <LogOut className="h-4 w-4" />
+              {collapsed ? <ChevronRight className="h-4 w-4" /> : (
+                <>
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="text-xs">Collapse</span>
+                </>
+              )}
             </Button>
-          </div>
-        </div>
-      </aside>
-
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          MOBILE SIDEBAR OVERLAY
-          ───────────────────────────────────────────────────────────────────────────── */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex md:hidden">
-          {/* Backdrop overlay */}
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
-
-          <aside className="relative flex w-full max-w-xs flex-col bg-card py-6 shadow-xl">
-            <div className="flex h-10 items-center justify-between px-6 border-b pb-4">
-              <div className="flex items-center gap-2">
-                <img src="/logo.png" alt="TransitOS Logo" className="h-8 w-8 object-contain" />
-                <span className="text-lg font-black tracking-tight bg-gradient-to-r from-primary to-indigo-600 bg-clip-text text-transparent">
-                  TransitOS
-                </span>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)}>
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-
-            <nav className="mt-6 flex-1 space-y-1 px-4">
-              {navigationItems.map((item) => {
-                const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all',
-                      isActive
-                        ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-                        : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                    )}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    {item.name}
-                  </Link>
-                );
-              })}
-            </nav>
-
-            <div className="border-t px-4 pt-4">
-              <div className="flex items-center gap-3 rounded-lg bg-accent/40 p-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 font-bold text-primary">
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 overflow-hidden">
-                  <div className="truncate text-sm font-bold text-foreground">{user.name}</div>
-                  <div className="truncate text-xs text-muted-foreground">{user.role}</div>
-                </div>
-                <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 text-destructive">
+            {collapsed ? (
+              <div className="flex flex-col items-center gap-1">
+                <UserCard compact />
+                <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 text-muted-foreground hover:text-destructive" title="Sign Out">
                   <LogOut className="h-4 w-4" />
                 </Button>
               </div>
+            ) : (
+              <UserCard />
+            )}
+          </div>
+        </aside>
+
+        {/* ═══════════════════════════════════════════════════════════════
+            MOBILE SIDEBAR DRAWER (visible on mobile only)
+        ═══════════════════════════════════════════════════════════════ */}
+        {mobileMenuOpen && (
+          <div className="fixed inset-0 z-50 flex md:hidden">
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 bg-black/50"
+              style={{ WebkitBackdropFilter: 'blur(4px)', backdropFilter: 'blur(4px)' }}
+              onClick={() => setMobileMenuOpen(false)}
+            />
+
+            <aside
+              className="relative flex w-72 max-w-[85vw] flex-col bg-card shadow-2xl"
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
+              {/* Mobile header */}
+              <div className="flex h-14 items-center justify-between border-b px-5">
+                <div className="flex items-center gap-2">
+                  <img src="/logo.png" alt="TransitOS Logo" className="h-7 w-7 object-contain" />
+                  <span className="text-base font-black tracking-tight bg-gradient-to-r from-primary to-indigo-600 bg-clip-text text-transparent">
+                    TransitOS
+                  </span>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)}>
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+
+              {/* Manager badge */}
+              {isManager && (
+                <div className="mx-4 mt-3 flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5">
+                  <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
+                  <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">View Only Mode</span>
+                </div>
+              )}
+
+              {/* Nav */}
+              <nav className="mt-3 flex-1 space-y-1 px-3 overflow-y-auto">
+                {navItems.map((item) => (
+                  <NavLink key={item.path} item={item} onClick={() => setMobileMenuOpen(false)} />
+                ))}
+              </nav>
+
+              {/* Bottom */}
+              <div className="border-t p-4">
+                <UserCard />
+              </div>
+            </aside>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════
+            MAIN CONTENT WORKSPACE
+        ═══════════════════════════════════════════════════════════════ */}
+        <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+          {/* Header toolbar */}
+          <header className="flex h-14 md:h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-6 gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              {/* Hamburger — mobile only */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden text-foreground shrink-0"
+                onClick={() => setMobileMenuOpen(true)}
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+              <h1 className="text-lg md:text-xl font-extrabold text-foreground tracking-tight truncate">
+                {getPageTitle()}
+              </h1>
+              {isManager && (
+                <span className="hidden sm:flex items-center gap-1 text-[10px] font-bold text-amber-500 border border-amber-500/30 bg-amber-500/10 rounded-full px-2 py-0.5">
+                  <ShieldAlert className="h-3 w-3" />
+                  View Only
+                </span>
+              )}
             </div>
-          </aside>
+
+            <div className="flex items-center gap-2 md:gap-3 shrink-0">
+              {/* WhatsApp status — admin only, hidden on small screens */}
+              {isAdmin && (
+                <div className="hidden sm:flex items-center gap-2 rounded-full border bg-accent/20 px-3 py-1 text-xs font-semibold">
+                  <span
+                    className={cn(
+                      'h-2 w-2 rounded-full animate-pulse',
+                      waStatus?.connected ? 'bg-emerald-500 shadow-sm shadow-emerald-500/40' : 'bg-gray-400',
+                    )}
+                  />
+                  <span className="text-muted-foreground">
+                    {waStatus?.connected ? 'WhatsApp Linked' : 'WhatsApp Offline'}
+                  </span>
+                </div>
+              )}
+
+              {/* Dark/Light mode toggle */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                className="h-9 w-9 text-muted-foreground hover:text-foreground relative"
+                title="Toggle Theme"
+              >
+                <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+                <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+              </Button>
+            </div>
+          </header>
+
+          {/* Dynamic page content */}
+          <main className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-8">
+            <div className="mx-auto max-w-7xl">{children}</div>
+          </main>
         </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          MAIN CONTENT WORKSPACE
-          ───────────────────────────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Header toolbar */}
-        <header className="flex h-16 items-center justify-between border-b bg-card px-6">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="md:hidden text-foreground"
-              onClick={() => setMobileMenuOpen(true)}
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
-            <h1 className="text-xl font-extrabold text-foreground tracking-tight">{getPageTitle()}</h1>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {/* WhatsApp Integration connection status badge */}
-            <div className="flex items-center gap-2 rounded-full border bg-accent/20 px-3 py-1 text-xs font-semibold">
-              <span
-                className={cn(
-                  'h-2 w-2 rounded-full animate-pulse',
-                  waStatus?.connected ? 'bg-success shadow-sm shadow-success/40' : 'bg-gray-400',
-                )}
-              />
-              <span className="text-muted-foreground hidden sm:inline">
-                {waStatus?.connected ? 'WhatsApp Linked' : 'WhatsApp Offline'}
-              </span>
-            </div>
-
-            {/* Dark/Light mode toggle */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="h-9 w-9 text-muted-foreground hover:text-foreground"
-              title="Toggle Theme"
-            >
-              <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-              <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-            </Button>
-          </div>
-        </header>
-
-        {/* Dynamic page content container */}
-        <main className="flex-1 overflow-y-auto px-6 py-8">
-          <div className="mx-auto max-w-7xl">{children}</div>
-        </main>
       </div>
-    </div>
+    </RoleContext.Provider>
   );
 }

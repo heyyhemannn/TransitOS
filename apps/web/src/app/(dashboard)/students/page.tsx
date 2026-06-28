@@ -51,6 +51,9 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
+
+import { usePageRole } from '../layout';
 
 // Form validation schema
 const studentSchema = z.object({
@@ -76,6 +79,7 @@ type StudentFormValues = z.infer<typeof studentSchema>;
 export default function StudentsPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { canMutate } = usePageRole();
 
   // Search & Filter State
   const [search, setSearch] = React.useState('');
@@ -272,14 +276,23 @@ export default function StudentsPage() {
     <div className="space-y-6">
       {/* Action Header */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight">Active Registrations</h2>
-          <p className="text-sm text-muted-foreground">List and configure active student profiles</p>
+        <div className="flex items-center gap-2">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight">Active Registrations</h2>
+            <p className="text-sm text-muted-foreground">List and configure active student profiles</p>
+          </div>
+          {!canMutate && (
+            <Badge variant="outline" className="text-amber-500 border-amber-500 bg-amber-500/10 font-bold">
+              View Only
+            </Badge>
+          )}
         </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2 font-bold shadow-md shadow-primary/20">
-          <Plus className="h-4 w-4" />
-          Add Student
-        </Button>
+        {canMutate && (
+          <Button onClick={() => setCreateOpen(true)} className="gap-2 font-bold shadow-md shadow-primary/20">
+            <Plus className="h-4 w-4" />
+            Add Student
+          </Button>
+        )}
       </div>
 
       {/* Filters Toolbar */}
@@ -317,106 +330,194 @@ export default function StudentsPage() {
         </Select>
       </div>
 
-      {/* Data Table */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-card overflow-hidden shadow-md">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr className="border-b bg-muted/30">
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Student Details</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">School & Class</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Parent No 1</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Parent No 2</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Monthly Fee</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Status</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {studentsLoading ? (
-              Array.from({ length: 5 }).map((_, idx) => (
-                <tr key={idx} className="border-b animate-pulse">
-                  <td className="p-4"><div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4 text-right"><div className="h-6 w-6 bg-slate-200 dark:bg-slate-800 rounded-full inline-block" /></td>
-                </tr>
-              ))
-            ) : studentsData?.students && studentsData.students.length > 0 ? (
-              studentsData.students.map((student) => (
-                <tr key={student.id} className="border-b hover:bg-muted/10 transition-colors">
-                  <td className="p-4 font-semibold text-foreground">
-                    <div>{student.name}</div>
-                    <div className="text-xs text-muted-foreground font-normal">Parent: {student.parentName}</div>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex items-center gap-1.5 text-sm">
-                      <School className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>{student.school}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">{student.class}</span>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                      <Phone className="h-3.5 w-3.5 text-emerald-500" />
-                      <span>{student.fatherMobile}</span>
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    {student.motherMobile ? (
-                      <div className="flex items-center gap-1.5 text-sm text-foreground">
-                        <Phone className="h-3.5 w-3.5 text-slate-400" />
-                        <span>{student.motherMobile}</span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground/45">N/A</span>
-                    )}
-                  </td>
-                  <td className="p-4 font-bold text-foreground">
-                    ₹{(student.monthlyFee / 100).toFixed(0)}
-                  </td>
-                  <td className="p-4">
-                    <Badge variant="success">Active</Badge>
-                  </td>
-                  <td className="p-4 text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+      {/* Responsive View: Table on Desktop, Cards on Mobile */}
+      <div className="space-y-4">
+        {/* MOBILE CARD LIST VIEW */}
+        <div className="grid gap-4 grid-cols-1 md:hidden">
+          {studentsLoading ? (
+            Array.from({ length: 4 }).map((_, idx) => (
+              <Card key={idx} className="animate-pulse border-slate-200 dark:border-slate-800 bg-card p-4 space-y-3">
+                <div className="h-4 w-1/3 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-3 w-1/2 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-3 w-1/4 rounded bg-slate-200 dark:bg-slate-800" />
+              </Card>
+            ))
+          ) : studentsData?.students && studentsData.students.length > 0 ? (
+            studentsData.students.map((student) => (
+              <Card key={student.id} className="border-slate-200 dark:border-slate-800 bg-card p-4 hover:shadow-md transition-shadow relative">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="font-bold text-foreground text-base">{student.name}</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">Parent: {student.parentName}</p>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                      {canMutate && (
                         <DropdownMenuItem onClick={() => handleEditClick(student)} className="gap-2">
                           <Edit2 className="h-3.5 w-3.5" /> Edit Profile
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleMatrixClick(student)} className="gap-2">
-                          <Grid className="h-3.5 w-3.5" /> Fee Ledger Matrix
-                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem onClick={() => handleMatrixClick(student)} className="gap-2">
+                        <Grid className="h-3.5 w-3.5" /> Fee Ledger Matrix
+                      </DropdownMenuItem>
+                      {canMutate && (
                         <DropdownMenuItem onClick={() => broadcastMutation.mutate(student.id)} className="gap-2">
                           <Send className="h-3.5 w-3.5 text-primary" /> Send Fee Reminder
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
+                      )}
+                      {canMutate && <DropdownMenuSeparator />}
+                      {canMutate && (
                         <DropdownMenuItem onClick={() => handleDeleteClick(student)} className="gap-2 text-destructive">
                           <Trash2 className="h-3.5 w-3.5" /> Delete Student
                         </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground border-t pt-3">
+                  <span className="flex items-center gap-1">
+                    <School className="h-3.5 w-3.5" />
+                    {student.school} ({student.class})
+                  </span>
+                  <span>•</span>
+                  <span className="font-bold text-foreground">
+                    ₹{(student.monthlyFee / 100).toFixed(0)}/mo
+                  </span>
+                </div>
+
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <span className="text-emerald-500 font-bold">Active</span>
+                  {student.fatherMobile && (
+                    <span className="text-slate-400 font-mono ml-auto">
+                      📞 {student.fatherMobile}
+                    </span>
+                  )}
+                </div>
+              </Card>
+            ))
+          ) : (
+            <div className="text-center py-8 text-muted-foreground bg-card border rounded-xl">
+              <Users className="h-10 w-10 stroke-1 mx-auto mb-2" />
+              No students matching filters found.
+            </div>
+          )}
+        </div>
+
+        {/* DESKTOP TABLE VIEW */}
+        <div className="hidden md:block rounded-xl border border-slate-200 dark:border-slate-800 bg-card overflow-x-auto scrollbar-thin shadow-md">
+          <table className="w-full border-collapse text-left min-w-[700px]">
+            <thead>
+              <tr className="border-b bg-muted/30">
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Student Details</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">School & Class</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Parent No 1</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Parent No 2</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Monthly Fee</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Status</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {studentsLoading ? (
+                Array.from({ length: 5 }).map((_, idx) => (
+                  <tr key={idx} className="border-b animate-pulse">
+                    <td className="p-4"><div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4 text-right"><div className="h-6 w-6 bg-slate-200 dark:bg-slate-800 rounded-full inline-block" /></td>
+                  </tr>
+                ))
+              ) : studentsData?.students && studentsData.students.length > 0 ? (
+                studentsData.students.map((student) => (
+                  <tr key={student.id} className="border-b hover:bg-muted/10 transition-colors">
+                    <td className="p-4 font-semibold text-foreground">
+                      <div>{student.name}</div>
+                      <div className="text-xs text-muted-foreground font-normal">Parent: {student.parentName}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-1.5 text-sm">
+                        <School className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>{student.school}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{student.class}</span>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                        <Phone className="h-3.5 w-3.5 text-emerald-500" />
+                        <span>{student.fatherMobile}</span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      {student.motherMobile ? (
+                        <div className="flex items-center gap-1.5 text-sm text-foreground">
+                          <Phone className="h-3.5 w-3.5 text-slate-400" />
+                          <span>{student.motherMobile}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/45">N/A</span>
+                      )}
+                    </td>
+                    <td className="p-4 font-bold text-foreground">
+                      ₹{(student.monthlyFee / 100).toFixed(0)}
+                    </td>
+                    <td className="p-4">
+                      <Badge variant="success">Active</Badge>
+                    </td>
+                    <td className="p-4 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          {canMutate && (
+                            <DropdownMenuItem onClick={() => handleEditClick(student)} className="gap-2">
+                              <Edit2 className="h-3.5 w-3.5" /> Edit Profile
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => handleMatrixClick(student)} className="gap-2">
+                            <Grid className="h-3.5 w-3.5" /> Fee Ledger Matrix
+                          </DropdownMenuItem>
+                          {canMutate && (
+                            <DropdownMenuItem onClick={() => broadcastMutation.mutate(student.id)} className="gap-2">
+                              <Send className="h-3.5 w-3.5 text-primary" /> Send Fee Reminder
+                            </DropdownMenuItem>
+                          )}
+                          {canMutate && <DropdownMenuSeparator />}
+                          {canMutate && (
+                            <DropdownMenuItem onClick={() => handleDeleteClick(student)} className="gap-2 text-destructive">
+                              <Trash2 className="h-3.5 w-3.5" /> Delete Student
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                    <Users className="h-10 w-10 stroke-1 mx-auto mb-2" />
+                    No students matching filters found.
                   </td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                  <Users className="h-10 w-10 stroke-1 mx-auto mb-2" />
-                  No students matching filters found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
 
         {/* Pagination controls */}
         {studentsData && studentsData.totalPages > 1 && (
@@ -446,9 +547,7 @@ export default function StudentsPage() {
         )}
       </div>
 
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          CREATE DIALOG
-          ───────────────────────────────────────────────────────────────────────────── */}
+      {/* CREATE DIALOG */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -549,9 +648,7 @@ export default function StudentsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          EDIT DIALOG
-          ───────────────────────────────────────────────────────────────────────────── */}
+      {/* EDIT DIALOG */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -650,9 +747,7 @@ export default function StudentsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          DELETE CONFIRMATION DIALOG
-          ───────────────────────────────────────────────────────────────────────────── */}
+      {/* DELETE CONFIRMATION DIALOG */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
@@ -676,9 +771,7 @@ export default function StudentsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          FEE LEDGER MATRIX DIALOG
-          ───────────────────────────────────────────────────────────────────────────── */}
+      {/* FEE LEDGER MATRIX DIALOG */}
       <Dialog open={matrixOpen} onOpenChange={setMatrixOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>

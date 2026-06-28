@@ -7,6 +7,8 @@ import { prisma } from '../lib/prisma';
 import { getRedis, incrementRateLimit } from '../lib/redis';
 import { logger } from '../lib/logger';
 import { authenticate } from '../middleware/auth';
+import { requireRole } from '../middleware/rbac';
+import { UserRole } from '@prisma/client';
 
 export const authRouter = Router();
 
@@ -284,3 +286,44 @@ authRouter.get('/me', authenticate, (req: Request, res: Response): void => {
     },
   });
 });
+
+/**
+ * GET /api/v1/auth/users
+ * ADMIN only — list all users, optionally filtered by role.
+ * Used to populate driver assignment dropdowns.
+ */
+authRouter.get(
+  '/users',
+  authenticate,
+  requireRole(UserRole.ADMIN),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const roleFilter = req.query.role as string | undefined;
+
+      // Validate the role filter if provided
+      const validRoles = Object.values(UserRole);
+      if (roleFilter && !validRoles.includes(roleFilter as UserRole)) {
+        res.status(400).json({ success: false, error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
+        return;
+      }
+
+      const users = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          ...(roleFilter ? { role: roleFilter as UserRole } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+        orderBy: { name: 'asc' },
+      });
+
+      res.json({ success: true, data: users });
+    } catch (error) {
+      next(error);
+    }
+  },
+);

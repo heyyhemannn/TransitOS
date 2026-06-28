@@ -23,6 +23,9 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { usePageRole } from '../layout';
+
 
 const testMessageSchema = z.object({
   phone: z.string().regex(/^[6-9]\d{9}$/, 'Must be a valid 10-digit Indian mobile number'),
@@ -34,7 +37,9 @@ type TestMessageFormValues = z.infer<typeof testMessageSchema>;
 export default function WhatsAppPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { canMutate } = usePageRole();
   const [sendingTest, setSendingTest] = React.useState(false);
+
 
   const testForm = useForm<TestMessageFormValues>({
     resolver: zodResolver(testMessageSchema),
@@ -111,10 +116,18 @@ export default function WhatsAppPage() {
           <h2 className="text-xl font-bold tracking-tight">WhatsApp Gateway</h2>
           <p className="text-sm text-muted-foreground">Pair devices, check connection status, and send tests</p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleManualRefresh} className="gap-2 font-bold">
-          <RefreshCw className="h-4 w-4" />
-          Sync Status
-        </Button>
+        <div className="flex items-center gap-2">
+          {!canMutate && (
+            <Badge variant="outline" className="text-amber-500 border-amber-500 bg-amber-500/10 font-bold">
+              View Only
+            </Badge>
+          )}
+          <Button variant="outline" size="sm" onClick={handleManualRefresh} className="gap-2 font-bold">
+            <RefreshCw className="h-4 w-4" />
+            Sync Status
+          </Button>
+        </div>
+
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -234,23 +247,27 @@ export default function WhatsAppPage() {
               </div>
             </CardContent>
             <CardFooter className="bg-muted/10 border-t py-4 flex justify-end">
-              <Button
-                type="submit"
-                disabled={!isConnected || sendTestMutation.isPending}
-                className="gap-2 font-bold shadow-md shadow-primary/10"
-              >
-                {sendTestMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-4 w-4" />
-                    Send Test Message
-                  </>
-                )}
-              </Button>
+              {canMutate ? (
+                <Button
+                  type="submit"
+                  disabled={!isConnected || sendTestMutation.isPending}
+                  className="gap-2 font-bold shadow-md shadow-primary/10"
+                >
+                  {sendTestMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      Send Test Message
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">Admin access required to send test messages.</p>
+              )}
             </CardFooter>
           </form>
         </Card>

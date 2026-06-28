@@ -68,6 +68,7 @@ model User {
   updatedAt    DateTime   @updatedAt
   payments     Payment[]
   auditLogs    AuditLog[]
+  assignedRoute Route?   @relation("DriverRoute")
 }
 
 model Student {
@@ -100,6 +101,8 @@ model Route {
   id            String    @id @default(cuid())
   name          String
   driverName    String?
+  driverId      String?   @unique
+  driver        User?     @relation("DriverRoute", fields: [driverId], references: [id], onDelete: SetNull)
   vehicleNumber String?
   isActive      Boolean   @default(true)
   students      Student[]

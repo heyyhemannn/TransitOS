@@ -40,6 +40,9 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/lib/auth';
+import { Card } from '@/components/ui/card';
+import { usePageRole } from '../layout';
+
 
 const manualPaymentSchema = z.object({
   studentId: z.string().min(1, 'Please select a student'),
@@ -57,6 +60,7 @@ export default function PaymentsPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { accessToken } = useAuthStore();
+  const { canMutate, isAdmin, isManager } = usePageRole();
 
   // Filters State
   const now = new Date();
@@ -237,15 +241,24 @@ export default function PaymentsPage() {
     <div className="space-y-6">
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight">Payments Directory</h2>
-          <p className="text-sm text-muted-foreground">Manage collection history, upload CSV logs, and matching reports</p>
+        <div className="flex items-center gap-2">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight">Payments Directory</h2>
+            <p className="text-sm text-muted-foreground">Manage collection history, upload CSV logs, and matching reports</p>
+          </div>
+          {isManager && (
+            <Badge variant="outline" className="text-amber-500 border-amber-500 bg-amber-500/10 font-bold">
+              View Only
+            </Badge>
+          )}
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={() => setUploadOpen(true)} className="gap-2 font-bold">
-            <Upload className="h-4 w-4" />
-            Upload CSV
-          </Button>
+          {isAdmin && (
+            <Button variant="outline" onClick={() => setUploadOpen(true)} className="gap-2 font-bold">
+              <Upload className="h-4 w-4" />
+              Upload CSV
+            </Button>
+          )}
           <Button onClick={() => setManualOpen(true)} className="gap-2 font-bold shadow-md shadow-primary/20">
             <Plus className="h-4 w-4" />
             Manual Payment
@@ -295,100 +308,179 @@ export default function PaymentsPage() {
         </Select>
       </div>
 
-      {/* Main Table */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-card overflow-hidden shadow-md">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr className="border-b bg-muted/30">
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Reference ID</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Student Match</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Billing Period</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Amount</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Method</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Tally Status</th>
-              <th className="p-4 text-xs font-bold text-muted-foreground uppercase text-right">Receipt</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paymentsLoading ? (
-              Array.from({ length: 5 }).map((_, idx) => (
-                <tr key={idx} className="border-b animate-pulse">
-                  <td className="p-4"><div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-20 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4"><div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded" /></td>
-                  <td className="p-4 text-right"><div className="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded inline-block" /></td>
-                </tr>
-              ))
-            ) : paymentsData?.payments && paymentsData.payments.length > 0 ? (
-              paymentsData.payments.map((payment) => (
-                <tr key={payment.id} className="border-b hover:bg-muted/10 transition-colors">
-                  <td className="p-4">
-                    <span className="font-mono text-xs font-bold text-foreground bg-accent/30 px-2 py-1 rounded">
+      {/* Responsive View: Table on Desktop, Cards on Mobile */}
+      <div className="space-y-4">
+        {/* MOBILE CARD LIST VIEW */}
+        <div className="grid gap-4 grid-cols-1 md:hidden">
+          {paymentsLoading ? (
+            Array.from({ length: 4 }).map((_, idx) => (
+              <Card key={idx} className="animate-pulse border-slate-200 dark:border-slate-800 bg-card p-4 space-y-3">
+                <div className="h-4 w-1/3 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-3 w-1/2 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-3 w-1/4 rounded bg-slate-200 dark:bg-slate-800" />
+              </Card>
+            ))
+          ) : paymentsData?.payments && paymentsData.payments.length > 0 ? (
+            paymentsData.payments.map((payment) => (
+              <Card key={payment.id} className="border-slate-200 dark:border-slate-800 bg-card p-4 hover:shadow-md transition-shadow">
+                <div className="flex justify-between items-start gap-4">
+                  <div>
+                    <span className="font-mono text-[10px] font-bold text-foreground bg-accent/50 px-2 py-0.5 rounded">
                       {payment.transactionId || 'MANUAL-ENTRY'}
                     </span>
-                    <div className="text-[10px] text-muted-foreground mt-1">
+                    <p className="text-[10px] text-muted-foreground mt-1">
                       {new Date(payment.paidAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <div className="font-bold text-foreground">{payment.student?.name}</div>
-                    <div className="text-xs text-muted-foreground">{payment.student?.school}</div>
-                  </td>
-                  <td className="p-4 font-medium text-foreground">
-                    {getMonthName(payment.month)} {payment.year}
-                  </td>
-                  <td className="p-4 font-black text-success">
-                    ₹{(payment.amount / 100).toFixed(0)}
-                  </td>
-                  <td className="p-4">
-                    <Badge variant="outline" className="font-bold text-foreground">
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-success">
+                      ₹{(payment.amount / 100).toFixed(0)}
+                    </p>
+                    <Badge variant="outline" className="text-[10px] mt-1 font-bold">
                       {payment.method}
                     </Badge>
-                  </td>
-                  <td className="p-4">
+                  </div>
+                </div>
+
+                <div className="mt-3 border-t pt-3 space-y-1">
+                  <div className="text-sm font-bold text-foreground">{payment.student?.name}</div>
+                  <div className="text-xs text-muted-foreground">{payment.student?.school}</div>
+                  <div className="text-xs text-slate-400 font-semibold pt-1">
+                    Period: {getMonthName(payment.month)} {payment.year}
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <div>
                     {payment.status === 'PAID' ? (
-                      <div className="flex items-center gap-1 text-success">
-                        <CheckCircle2 className="h-4 w-4" />
-                        <span className="text-xs font-bold">MATCHED</span>
-                      </div>
+                      <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                        MATCHED
+                      </span>
                     ) : payment.status === 'UNMATCHED' ? (
-                      <div className="flex items-center gap-1 text-warning">
-                        <Clock className="h-4 w-4" />
-                        <span className="text-xs font-bold">UNMATCHED</span>
-                      </div>
+                      <span className="text-xs font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                        UNMATCHED
+                      </span>
                     ) : (
-                      <div className="flex items-center gap-1 text-destructive">
-                        <AlertCircle className="h-4 w-4" />
-                        <span className="text-xs font-bold">FAILED</span>
-                      </div>
+                      <span className="text-xs font-bold text-red-500 bg-red-500/10 border border-red-500/20 px-2.5 py-0.5 rounded-full">
+                        FAILED
+                      </span>
                     )}
-                  </td>
-                  <td className="p-4 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDownloadReceipt(payment.id)}
-                      className="gap-1 font-bold text-primary hover:text-indigo-600"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      PDF
-                    </Button>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDownloadReceipt(payment.id)}
+                    className="gap-1 font-bold text-primary hover:text-indigo-600 h-8 px-3.5 border text-xs"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    PDF Receipt
+                  </Button>
+                </div>
+              </Card>
+            ))
+          ) : (
+            <div className="text-center py-8 text-muted-foreground bg-card border rounded-xl">
+              <IndianRupee className="h-10 w-10 stroke-1 mx-auto mb-2" />
+              No payments matching filters found for this period.
+            </div>
+          )}
+        </div>
+
+        {/* DESKTOP TABLE VIEW */}
+        <div className="hidden md:block rounded-xl border border-slate-200 dark:border-slate-800 bg-card overflow-x-auto scrollbar-thin shadow-md">
+          <table className="w-full border-collapse text-left min-w-[700px]">
+            <thead>
+              <tr className="border-b bg-muted/30">
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Reference ID</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Student Match</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Billing Period</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Amount</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Method</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase">Tally Status</th>
+                <th className="p-4 text-xs font-bold text-muted-foreground uppercase text-right">Receipt</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paymentsLoading ? (
+                Array.from({ length: 5 }).map((_, idx) => (
+                  <tr key={idx} className="border-b animate-pulse">
+                    <td className="p-4"><div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-20 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4"><div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                    <td className="p-4 text-right"><div className="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded inline-block" /></td>
+                  </tr>
+                ))
+              ) : paymentsData?.payments && paymentsData.payments.length > 0 ? (
+                paymentsData.payments.map((payment) => (
+                  <tr key={payment.id} className="border-b hover:bg-muted/10 transition-colors">
+                    <td className="p-4">
+                      <span className="font-mono text-xs font-bold text-foreground bg-accent/30 px-2 py-1 rounded">
+                        {payment.transactionId || 'MANUAL-ENTRY'}
+                      </span>
+                      <div className="text-[10px] text-muted-foreground mt-1">
+                        {new Date(payment.paidAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="font-bold text-foreground">{payment.student?.name}</div>
+                      <div className="text-xs text-muted-foreground">{payment.student?.school}</div>
+                    </td>
+                    <td className="p-4 font-medium text-foreground">
+                      {getMonthName(payment.month)} {payment.year}
+                    </td>
+                    <td className="p-4 font-black text-success">
+                      ₹{(payment.amount / 100).toFixed(0)}
+                    </td>
+                    <td className="p-4">
+                      <Badge variant="outline" className="font-bold text-foreground">
+                        {payment.method}
+                      </Badge>
+                    </td>
+                    <td className="p-4">
+                      {payment.status === 'PAID' ? (
+                        <div className="flex items-center gap-1 text-success">
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span className="text-xs font-bold">MATCHED</span>
+                        </div>
+                      ) : payment.status === 'UNMATCHED' ? (
+                        <div className="flex items-center gap-1 text-warning">
+                          <Clock className="h-4 w-4" />
+                          <span className="text-xs font-bold">UNMATCHED</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 text-destructive">
+                          <AlertCircle className="h-4 w-4" />
+                          <span className="text-xs font-bold">FAILED</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDownloadReceipt(payment.id)}
+                        className="gap-1 font-bold text-primary hover:text-indigo-600"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        PDF
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                    <IndianRupee className="h-10 w-10 stroke-1 mx-auto mb-2" />
+                    No payments matching filters found for this period.
                   </td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                  <IndianRupee className="h-10 w-10 stroke-1 mx-auto mb-2" />
-                  No payments matching filters found for this period.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
 
         {/* Pagination controls */}
         {paymentsData && paymentsData.totalPages > 1 && (

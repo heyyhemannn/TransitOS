@@ -31,6 +31,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { usePageRole } from '../layout';
+
 
 // Helper to format currency
 const formatCurrency = (paise: number) => {
@@ -42,7 +45,9 @@ const formatCurrency = (paise: number) => {
 };
 
 export default function ReportsPage() {
+  const { canMutate } = usePageRole();
   const [activeTab, setActiveTab] = React.useState<'collections' | 'routes'>('collections');
+
 
   // Date Range state for Daily reports
   const now = new Date();
@@ -139,34 +144,38 @@ export default function ReportsPage() {
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Financial & Route Analytics</h2>
+          <h2 className="text-xl font-bold tracking-tight">Financial &amp; Route Analytics</h2>
           <p className="text-sm text-muted-foreground">Monitor collections overview and route KPIs</p>
         </div>
-
-        {/* Tab switch buttons */}
-        <div className="flex bg-muted/60 p-1 rounded-lg border">
-          <Button
-            variant={activeTab === 'collections' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setActiveTab('collections')}
-            className="font-bold"
-          >
-            Collections Over Time
-          </Button>
-          <Button
-            variant={activeTab === 'routes' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setActiveTab('routes')}
-            className="font-bold"
-          >
-            Route Collection Rates
-          </Button>
+        <div className="flex items-center gap-2">
+          {!canMutate && (
+            <Badge variant="outline" className="text-amber-500 border-amber-500 bg-amber-500/10 font-bold">
+              View Only
+            </Badge>
+          )}
+          {/* Tab switch buttons */}
+          <div className="flex bg-muted/60 p-1 rounded-lg border">
+            <Button
+              variant={activeTab === 'collections' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setActiveTab('collections')}
+              className="font-bold"
+            >
+              Collections Over Time
+            </Button>
+            <Button
+              variant={activeTab === 'routes' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setActiveTab('routes')}
+              className="font-bold"
+            >
+              Route Collection Rates
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          TAB CONTENT: COLLECTIONS OVER TIME
-          ───────────────────────────────────────────────────────────────────────────── */}
+      {/* TAB CONTENT: COLLECTIONS OVER TIME */}
       {activeTab === 'collections' && (
         <div className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-3">
@@ -237,7 +246,7 @@ export default function ReportsPage() {
                 </CardContent>
               </div>
 
-              <div className="p-6 border-t bg-muted/10">
+              <div className="p-6 border-t bg-muted/10 hidden md:block">
                 <Button
                   onClick={handleExportCSV}
                   disabled={!dailyReports || dailyReports.length === 0}
@@ -314,9 +323,7 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          TAB CONTENT: ROUTE PERFORMANCE
-          ───────────────────────────────────────────────────────────────────────────── */}
+      {/* TAB CONTENT: ROUTE PERFORMANCE */}
       {activeTab === 'routes' && (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {routesLoading ? (
@@ -392,6 +399,20 @@ export default function ReportsPage() {
               No active routes found to evaluate.
             </div>
           )}
+        </div>
+      )}
+
+      {/* Mobile Sticky Export Bar - Admin/Manager with mutation only */}
+      {activeTab === 'collections' && canMutate && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 p-3 bg-card border-t border-slate-200 dark:border-slate-800 flex justify-center z-40">
+          <Button
+            onClick={handleExportCSV}
+            disabled={!dailyReports || dailyReports.length === 0}
+            className="w-full max-w-md gap-2 font-bold shadow-md shadow-primary/10 h-11"
+          >
+            <Download className="h-4 w-4" />
+            Export Daily Logs (CSV)
+          </Button>
         </div>
       )}
     </div>

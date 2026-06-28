@@ -39,8 +39,11 @@ const formatCurrency = (paise: number) => {
   }).format(paise / 100);
 };
 
+import { usePageRole } from '../layout';
+
 export default function DashboardPage() {
   const { toast } = useToast();
+  const { canMutate } = usePageRole();
 
   const broadcastMutation = useMutation({
     mutationFn: async () => {
@@ -149,7 +152,7 @@ export default function DashboardPage() {
   if (dashboardLoading) {
     return (
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, idx) => (
             <Card key={idx} className="animate-pulse border-slate-800 bg-slate-900/40">
               <CardHeader className="space-y-2">
@@ -178,16 +181,18 @@ export default function DashboardPage() {
               </span>
             </div>
           </div>
-          <Link href="/whatsapp">
-            <Button size="sm" variant="warning" className="font-bold shadow-md shadow-warning/15">
-              Pair Device Now
-            </Button>
-          </Link>
+          {canMutate && (
+            <Link href="/whatsapp">
+              <Button size="sm" variant="warning" className="font-bold shadow-md shadow-warning/15">
+                Pair Device Now
+              </Button>
+            </Link>
+          )}
         </div>
       )}
 
       {/* KPI Stats widgets grid */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         {/* Total Students */}
         <Card className="relative overflow-hidden border-slate-200 dark:border-slate-800 bg-card hover:shadow-xl transition-all duration-300 group">
           <div className="absolute right-0 top-0 h-24 w-24 translate-x-4 translate-y-[-10px] rounded-full bg-blue-500/5 group-hover:scale-125 transition-transform" />
@@ -248,15 +253,17 @@ export default function DashboardPage() {
             </div>
             <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-100 dark:border-slate-900">
               <span className="text-xs text-muted-foreground">Pending balance invoices</span>
-              <Button 
-                size="sm" 
-                variant="destructive" 
-                className="h-6 text-[10px] font-bold px-2 py-0.5"
-                onClick={() => broadcastMutation.mutate()}
-                disabled={!stats?.pendingRevenue || broadcastMutation.isPending}
-              >
-                {broadcastMutation.isPending ? 'Sending...' : 'Remind All'}
-              </Button>
+              {canMutate && (
+                <Button 
+                  size="sm" 
+                  variant="destructive" 
+                  className="h-6 text-[10px] font-bold px-2 py-0.5"
+                  onClick={() => broadcastMutation.mutate()}
+                  disabled={!stats?.pendingRevenue || broadcastMutation.isPending}
+                >
+                  {broadcastMutation.isPending ? 'Sending...' : 'Remind All'}
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
