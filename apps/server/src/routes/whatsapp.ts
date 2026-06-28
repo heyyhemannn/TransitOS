@@ -138,11 +138,11 @@ whatsappRouter.post(
         return;
       }
 
-      const sent = await sendWhatsAppMessage(phone, body, null, MessageType.BROADCAST);
-      if (sent) {
+      const result = await sendWhatsAppMessage(phone, body, null, MessageType.BROADCAST);
+      if (result.success) {
         res.json({ success: true, data: { message: 'Message sent successfully' } });
       } else {
-        res.status(500).json({ success: false, error: 'Failed to send WhatsApp message' });
+        res.status(400).json({ success: false, error: result.error || 'Failed to send WhatsApp message' });
       }
     } catch (error) {
       next(error);
@@ -438,11 +438,11 @@ whatsappRouter.post(
         webAppUrl,
       });
 
-      const sent = await sendWhatsAppMessage(phone, body, null, MessageType.REMINDER_1);
-      if (sent) {
+      const result = await sendWhatsAppMessage(phone, body, null, MessageType.REMINDER_1);
+      if (result.success) {
         res.json({ success: true, data: { message: 'Demo reminder sent successfully' } });
       } else {
-        res.status(500).json({ success: false, error: 'Failed to send demo message' });
+        res.status(400).json({ success: false, error: result.error || 'Failed to send demo message' });
       }
     } catch (error) {
       next(error);

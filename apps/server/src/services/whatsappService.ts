@@ -233,12 +233,15 @@ export async function sendWhatsAppMessage(
   body: string,
   studentId: string | null = null,
   type: MessageType = MessageType.BROADCAST,
-): Promise<boolean> {
-  const formattedPhone = formatWhatsAppNumber(phone);
+): Promise<{ success: boolean; error?: string }> {
   const now = new Date();
+
+  // Check connection state
+  getWhatsAppStatus();
 
   // 1. If not connected, fail immediately and log as FAILED
   if (!isConnected || !whatsappClient) {
+    const errMsg = 'WhatsApp client is not connected. Please pair QR first.';
     logger.warn(`Cannot send WhatsApp message. Client not connected. Recipient: ${phone}`);
     await prisma.whatsAppMessage.create({
       data: {
@@ -247,14 +250,27 @@ export async function sendWhatsAppMessage(
         type,
         body,
         status: MessageStatus.FAILED,
-        errorMessage: 'WhatsApp client is not connected',
+        errorMessage: errMsg,
         createdAt: now,
       },
     });
-    return false;
+    return { success: false, error: errMsg };
   }
 
   try {
+    // Determine exact WhatsApp ID (WID) using getNumberId
+    let targetWid = formatWhatsAppNumber(phone);
+    try {
+      const cleanDigits = phone.replace(/\D/g, '');
+      const fullDigits = cleanDigits.length === 10 ? '91' + cleanDigits : cleanDigits;
+      const numberId = await whatsappClient.getNumberId(fullDigits);
+      if (numberId?._serialized) {
+        targetWid = numberId._serialized;
+      }
+    } catch (numErr) {
+      logger.warn(`Could not resolve getNumberId for ${phone}, fallback to ${targetWid}`);
+    }
+
     if (type === MessageType.REMINDER_1) {
       try {
         const path = require('path');
@@ -262,17 +278,17 @@ export async function sendWhatsAppMessage(
         const qrPath = path.resolve(__dirname, '../assets/payment_qr.jpg');
         if (fs.existsSync(qrPath)) {
           const media = MessageMedia.fromFilePath(qrPath);
-          await whatsappClient.sendMessage(formattedPhone, media, { caption: body });
+          await whatsappClient.sendMessage(targetWid, media, { caption: body });
         } else {
           logger.warn(`Payment QR image not found at ${qrPath}. Sending text only.`);
-          await whatsappClient.sendMessage(formattedPhone, body);
+          await whatsappClient.sendMessage(targetWid, body);
         }
       } catch (mediaErr) {
         logger.error('Failed to send QR code image media. Falling back to text-only send:', mediaErr);
-        await whatsappClient.sendMessage(formattedPhone, body);
+        await whatsappClient.sendMessage(targetWid, body);
       }
     } else {
-      await whatsappClient.sendMessage(formattedPhone, body);
+      await whatsappClient.sendMessage(targetWid, body);
     }
 
     // Save record to DB as SENT
@@ -287,8 +303,9 @@ export async function sendWhatsAppMessage(
         createdAt: now,
       },
     });
-    return true;
+    return { success: true };
   } catch (err: any) {
+    const errMsg = err?.message || 'Unknown send error occurred in WhatsApp Web client';
     logger.error(`Failed to send WhatsApp message to ${phone}:`, err);
 
     // Save record to DB as FAILED
@@ -299,11 +316,11 @@ export async function sendWhatsAppMessage(
         type,
         body,
         status: MessageStatus.FAILED,
-        errorMessage: err.message || 'Unknown send error',
+        errorMessage: errMsg,
         createdAt: now,
       },
     });
-    return false;
+    return { success: false, error: errMsg };
   }
 }
 

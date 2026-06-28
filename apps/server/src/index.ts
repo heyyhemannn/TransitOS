@@ -35,14 +35,13 @@ app.use(
 
 app.use(
   cors({
-    origin: [
-      'https://transitos.vercel.app',
-      'http://localhost:3000',
-      process.env.CORS_ORIGIN ?? '',
-    ].filter(Boolean),
+    origin: (origin, callback) => {
+      // Allow all origins dynamically (reflecting client origin for credentials support)
+      callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   }),
 );
 
