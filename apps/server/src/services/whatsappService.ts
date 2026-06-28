@@ -239,12 +239,17 @@ export async function sendWhatsAppMessage(
   const now = new Date();
   const jid = formatWhatsAppJID(phone);
 
-  // Ensure status is in sync
-  getWhatsAppStatus();
+  // Sync from live socket — most reliable check
+  const actuallyConnected = !!(waSocket?.user?.id);
+  if (actuallyConnected) {
+    isConnected = true;
+    isConnecting = false;
+    clientPhone = waSocket!.user!.id.split(':')[0];
+  }
 
-  if (!isConnected || !waSocket) {
+  if (!actuallyConnected || !waSocket) {
     const errMsg = 'WhatsApp client is not connected. Please pair QR first.';
-    logger.warn(`Cannot send message. Client not connected. Recipient: ${phone}`);
+    logger.warn(`Cannot send message. Client not connected. Socket=${!!waSocket} user=${!!waSocket?.user?.id}. Recipient: ${phone}`);
     await prisma.whatsAppMessage.create({
       data: { studentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
     });

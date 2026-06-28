@@ -191,6 +191,7 @@ whatsappRouter.post(
       const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
       const businessName = settingsMap.get('businessName') || 'Sri Sai Travels';
       const upiId = settingsMap.get('upiId') || 'yourupi@ybl';
+      const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'https://transitos.vercel.app';
 
       // Date variables
       const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
@@ -230,10 +231,12 @@ whatsappRouter.post(
             const templateText = TEMPLATES[type];
             body = formatTemplate(templateText, {
               parentName: student.parentName,
+              studentName: student.name,
               amount: (student.monthlyFee / 100).toFixed(0),
               month: `${monthName} ${year}`,
               upiId,
               businessName,
+              webAppUrl,
             });
           }
 
