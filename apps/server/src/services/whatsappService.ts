@@ -190,7 +190,8 @@ export function getWhatsAppStatus(): { connected: boolean; phone: string | null 
 }
 
 /**
- * Actively query Puppeteer / WhatsApp Web client to synchronize state
+ * Actively query Puppeteer / WhatsApp Web client to synchronize state.
+ * Protected with a strict 1.5s timeout to prevent high-RAM Chromium hangs on Render.
  */
 export async function syncWhatsAppStatus(): Promise<{ connected: boolean; phone: string | null }> {
   if (whatsappClient) {
@@ -201,7 +202,13 @@ export async function syncWhatsAppStatus(): Promise<{ connected: boolean; phone:
         qrCodeBase64 = null;
         clientPhone = whatsappClient.info.wid.user;
       } else {
-        const state = await whatsappClient.getState();
+        // Race getState() against a 1.5-second timeout to prevent Render 502/503 gateways
+        const getStateWithTimeout = Promise.race([
+          whatsappClient.getState(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+        ]);
+
+        const state = await getStateWithTimeout;
         if (state === 'CONNECTED') {
           isConnected = true;
           isConnecting = false;
@@ -212,7 +219,7 @@ export async function syncWhatsAppStatus(): Promise<{ connected: boolean; phone:
         }
       }
     } catch (err) {
-      // client might not be ready for getState yet
+      // client might not be ready or page closed
     }
   }
   return getWhatsAppStatus();

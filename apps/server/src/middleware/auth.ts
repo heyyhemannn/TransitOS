@@ -27,13 +27,15 @@ export async function authenticate(
       return next();
     }
 
+    let token: string | undefined;
+
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.query?.token && typeof req.query.token === 'string') {
+      token = req.query.token;
     }
 
-    const token = authHeader.split(' ')[1];
     if (!token) {
       res.status(401).json({ success: false, error: 'Unauthorized' });
       return;
