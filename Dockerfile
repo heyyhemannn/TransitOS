@@ -1,23 +1,16 @@
-# Use Node.js 20 LTS slim image
+# Use Node.js 20 LTS slim image — no Chromium needed (using Baileys WebSocket)
 FROM node:20-slim
 
-# Install Chromium and dependencies needed for Puppeteer
+# Install only minimal system dependencies needed by Baileys
 RUN apt-get update && apt-get install -y \
-    chromium \
-    fonts-ipafont-gothic \
-    fonts-wqy-zenhei \
-    fonts-thai-tlwg \
-    fonts-kacst \
-    fonts-freefont-ttf \
-    libxss1 \
-    libnss3 \
-    libasound2 \
+    python3 \
+    make \
+    g++ \
+    libssl-dev \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Puppeteer executable path to the installed Chromium
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+# Environment
 ENV PORT=4000
 ENV NODE_ENV=production
 
