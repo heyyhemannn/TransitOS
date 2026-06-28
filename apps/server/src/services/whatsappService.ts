@@ -15,8 +15,30 @@ import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { MessageType, MessageStatus } from '@prisma/client';
 
-// Silent Pino logger for Baileys internals — Baileys requires a Pino-compatible logger
-const baileysLogger = P({ level: 'silent' });
+// Memory buffer for Baileys logs
+export const baileysLogsBuffer: string[] = [];
+
+// Custom Pino logger for Baileys internals that writes to memory buffer
+const baileysLogger = P(
+  { level: 'debug' },
+  {
+    write(msg: string) {
+      try {
+        const parsed = JSON.parse(msg);
+        const time = parsed.time ? new Date(parsed.time).toISOString() : new Date().toISOString();
+        const levelVal = parsed.level;
+        const levelName = levelVal === 30 ? 'INFO' : levelVal === 40 ? 'WARN' : levelVal >= 50 ? 'ERROR' : 'DEBUG';
+        const formattedMsg = `${time} [${levelName}]: ${parsed.msg || ''} ${parsed.err ? JSON.stringify(parsed.err) : ''}`;
+        baileysLogsBuffer.push(formattedMsg);
+      } catch {
+        baileysLogsBuffer.push(msg.trim());
+      }
+      if (baileysLogsBuffer.length > 300) {
+        baileysLogsBuffer.shift();
+      }
+    }
+  }
+);
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let waSocket: WASocket | null = null;
@@ -383,5 +405,6 @@ export function getWhatsAppDebugInfo() {
     clientPhone,
     qrLength: qrCodeBase64 ? qrCodeBase64.length : 0,
     sessionFiles: fs.existsSync(AUTH_DIR) ? fs.readdirSync(AUTH_DIR) : [],
+    baileysLogs: baileysLogsBuffer,
   };
 }
