@@ -3,11 +3,10 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
-  proto,
-  downloadMediaMessage,
   WASocket,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
+import P from 'pino';
 import * as QRCode from 'qrcode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -15,6 +14,9 @@ import type { Response as ExpressResponse } from 'express';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { MessageType, MessageStatus } from '@prisma/client';
+
+// Silent Pino logger for Baileys internals — Baileys requires a Pino-compatible logger
+const baileysLogger = P({ level: 'silent' });
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let waSocket: WASocket | null = null;
@@ -116,10 +118,10 @@ export async function initWhatsApp(): Promise<void> {
     version,
     auth: {
       creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, logger as any),
+      keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
     },
     printQRInTerminal: false,
-    logger: logger as any,
+    logger: baileysLogger,
     // Reduce memory usage
     msgRetryCounterCache: {} as any,
     generateHighQualityLinkPreview: false,
