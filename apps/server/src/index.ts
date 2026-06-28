@@ -17,7 +17,7 @@ import { parentRouter } from './routes/parent';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { authenticate } from './middleware/auth';
-import { initWhatsApp } from './services/whatsappService';
+import { initWhatsApp, getWhatsAppDebugInfo } from './services/whatsappService';
 import { initScheduler } from './services/schedulerService';
 import { logger } from './lib/logger';
 
@@ -115,6 +115,16 @@ app.get(`${API_PREFIX}/debug/logs`, (_req, res) => {
     }
   } catch (err: any) {
     res.status(500).send(`Error reading logs: ${err.message}`);
+  }
+});
+
+// Temporary debug route to inspect WhatsApp connection status
+app.get(`${API_PREFIX}/debug/whatsapp`, (_req, res) => {
+  try {
+    const info = getWhatsAppDebugInfo();
+    res.json({ success: true, data: info });
+  } catch (err: any) {
+    res.status(500).send(`Error getting debug info: ${err.message}`);
   }
 });
 
