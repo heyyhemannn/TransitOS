@@ -279,6 +279,7 @@ whatsappRouter.post(
       const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
       const businessName = settingsMap.get('businessName') || 'Sri Sai Travels';
       const upiId = settingsMap.get('upiId') || 'yourupi@ybl';
+      const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'http://localhost:3000';
 
       const monthsNames = [
         'January',
@@ -321,6 +322,7 @@ whatsappRouter.post(
             month: `${monthName} ${currentYear}`,
             upiId,
             businessName,
+            webAppUrl,
           });
 
           try {
@@ -373,6 +375,7 @@ whatsappRouter.post(
       const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
       const businessName = settingsMap.get('businessName') || 'Hemanth Transport Services';
       const upiId = settingsMap.get('upiId') || '9010009967@axl';
+      const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'http://localhost:3000';
 
       const body = formatTemplate(TEMPLATES[MessageType.REMINDER_1], {
         parentName: 'Test Parent (Demo)',
@@ -381,6 +384,7 @@ whatsappRouter.post(
         month: 'July 2026',
         upiId,
         businessName,
+        webAppUrl,
       });
 
       const sent = await sendWhatsAppMessage(phone, body, null, MessageType.REMINDER_1);

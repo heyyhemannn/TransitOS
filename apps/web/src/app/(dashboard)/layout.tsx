@@ -96,7 +96,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside className="hidden border-r bg-card md:flex md:w-64 md:flex-col">
         {/* Sidebar Header */}
         <div className="flex h-16 items-center gap-2 border-b px-6">
-          <Bus className="h-6 w-6 text-primary" />
+          <img src="/logo.png" alt="TransitOS Logo" className="h-8 w-8 object-contain" />
           <span className="text-lg font-black tracking-tight bg-gradient-to-r from-primary to-indigo-600 bg-clip-text text-transparent">
             TransitOS
           </span>
@@ -158,7 +158,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <aside className="relative flex w-full max-w-xs flex-col bg-card py-6 shadow-xl">
             <div className="flex h-10 items-center justify-between px-6 border-b pb-4">
               <div className="flex items-center gap-2">
-                <Bus className="h-6 w-6 text-primary" />
+                <img src="/logo.png" alt="TransitOS Logo" className="h-8 w-8 object-contain" />
                 <span className="text-lg font-black tracking-tight bg-gradient-to-r from-primary to-indigo-600 bg-clip-text text-transparent">
                   TransitOS
                 </span>

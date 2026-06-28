@@ -36,6 +36,9 @@ RUN npm ci --include=dev
 COPY packages/types ./packages/types
 COPY apps/server ./apps/server
 
+# Generate Prisma Client
+RUN npx prisma generate --schema=apps/server/prisma/schema.prisma
+
 # Build shared types package and backend
 RUN npm run build --workspace=packages/types
 RUN npm run build --workspace=apps/server

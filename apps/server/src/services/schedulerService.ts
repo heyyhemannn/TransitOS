@@ -29,6 +29,7 @@ async function runDailyFeeChecks(): Promise<void> {
     const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
     const businessName = settingsMap.get('businessName') || 'Sri Sai Travels';
     const upiId = settingsMap.get('upiId') || 'yourupi@upi';
+    const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'http://localhost:3000';
 
     const monthsNames = [
       'January',
@@ -128,6 +129,7 @@ async function runDailyFeeChecks(): Promise<void> {
         month: `${monthName} ${currentYear}`,
         upiId,
         businessName,
+        webAppUrl,
       });
 
       // Fire and forget send message with short delay spacing

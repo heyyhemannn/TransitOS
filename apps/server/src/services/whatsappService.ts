@@ -11,13 +11,13 @@ let clientPhone: string | null = null;
 
 export const TEMPLATES: Record<MessageType, string> = {
   [MessageType.REMINDER_1]:
-    'Dear {parentName},\n\nTransport fee reminder for {studentName}:\nTransport fee of ₹{amount} for {month} is due.\nKindly pay before 10th.\n\nPayment Options:\n• PhonePe/GPay: 9010009976\n• UPI ID: {upiId}\n\nKindly update your payment screenshot and reference ID to confirm: http://192.168.1.12:3000/pay-confirm\n\nThank you,\n{businessName}',
+    'Dear {parentName},\n\nTransport fee reminder for {studentName}:\nTransport fee of ₹{amount} for {month} is due.\nKindly pay before 10th.\n\nPayment Options:\n• PhonePe/GPay: 9010009976\n• UPI ID: {upiId}\n\nKindly update your payment screenshot and reference ID to confirm: {webAppUrl}/pay-confirm\n\nThank you,\n{businessName}',
   [MessageType.REMINDER_2]:
-    'Dear {parentName},\n\nReminder: Transport fee of ₹{amount} for {month} is still pending for {studentName}. Please pay before 15th.\n\nKindly update your payment screenshot and reference ID to confirm: http://192.168.1.12:3000/pay-confirm\n\nThank you,\n{businessName}',
+    'Dear {parentName},\n\nReminder: Transport fee of ₹{amount} for {month} is still pending for {studentName}. Please pay before 15th.\n\nKindly update your payment screenshot and reference ID to confirm: {webAppUrl}/pay-confirm\n\nThank you,\n{businessName}',
   [MessageType.REMINDER_3]:
-    'URGENT NOTICE: Dear {parentName},\n\nTransport fee of ₹{amount} for {month} is highly overdue for {studentName}. Please clear it immediately to avoid route suspension.\n\nKindly update your payment screenshot and reference ID to confirm: http://192.168.1.12:3000/pay-confirm\n\nThank you,\n{businessName}',
+    'URGENT NOTICE: Dear {parentName},\n\nTransport fee of ₹{amount} for {month} is highly overdue for {studentName}. Please clear it immediately to avoid route suspension.\n\nKindly update your payment screenshot and reference ID to confirm: {webAppUrl}/pay-confirm\n\nThank you,\n{businessName}',
   [MessageType.FINAL]:
-    'FINAL WARNING: Dear {parentName},\n\nTransport fee of ₹{amount} for {month} is now OVERDUE for {studentName}.\nPlease pay immediately to avoid service disruption.\n\nKindly update your payment screenshot and reference ID to confirm: http://192.168.1.12:3000/pay-confirm\n\nThank you,\n{businessName}',
+    'FINAL WARNING: Dear {parentName},\n\nTransport fee of ₹{amount} for {month} is now OVERDUE for {studentName}.\nPlease pay immediately to avoid service disruption.\n\nKindly update your payment screenshot and reference ID to confirm: {webAppUrl}/pay-confirm\n\nThank you,\n{businessName}',
   [MessageType.CONFIRMATION]:
     '✅ Payment Received!\n\nDear {parentName}, ₹{amount} received for {month} ({studentName}).\nReceipt No: {receiptId}\n\nThank you! 🙏\n{businessName}',
   [MessageType.EMERGENCY]:

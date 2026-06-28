@@ -72,12 +72,11 @@ export default function LoginPage() {
 
       <div className="z-10 w-full max-w-md">
         {/* Brand header */}
-        <div className="mb-8 flex flex-col items-center text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30">
-            <Bus className="h-6 w-6 text-white" />
+        <div className="mb-6 flex flex-col items-center text-center">
+          <div className="mb-2">
+            <img src="/logo.png" alt="TransitOS Logo" className="h-28 w-28 object-contain" />
           </div>
-          <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white">TransitOS</h2>
-          <p className="mt-2 text-sm text-slate-400">School Transport Management System</p>
+          <p className="text-sm text-slate-400">School Transport Management System</p>
         </div>
 
         {/* Login form card */}
