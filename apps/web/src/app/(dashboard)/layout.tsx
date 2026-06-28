@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldAlert,
+  Bus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth';
@@ -205,15 +206,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           )}
         >
           {/* Sidebar Header */}
-          <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center' : 'gap-2 px-4')}>
-            {collapsed ? (
-              <img src="/transitOS_compact_hero.svg" alt="TransitOS" className="h-7 w-7 shrink-0 object-contain" />
-            ) : (
-              <img
-                src="/transitOS_compact_hero.svg"
-                alt="Hemanth's Transport Services"
-                className="h-8 w-auto max-w-[148px] object-contain shrink-0"
-              />
+          <div className={cn('flex h-16 items-center border-b px-4', collapsed ? 'justify-center' : 'gap-3 px-5')}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-inner">
+              <Bus className="h-5 w-5" />
+            </div>
+            {!collapsed && (
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm font-black tracking-tight text-foreground leading-none">
+                  TransitOS
+                </span>
+                <span className="text-[9px] font-medium text-muted-foreground mt-1 truncate">
+                  Hemanth's Transport
+                </span>
+              </div>
             )}
           </div>
 
@@ -279,12 +284,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             >
               {/* Mobile header */}
               <div className="flex h-14 items-center justify-between border-b px-5">
-                <div className="flex items-center gap-2">
-                  <img
-                    src="/transitOS_compact_hero.svg"
-                    alt="Hemanth's Transport Services"
-                    className="h-7 w-auto max-w-[130px] object-contain"
-                  />
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary shadow-inner">
+                    <Bus className="h-4.5 w-4.5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-black tracking-tight text-foreground leading-none">
+                      TransitOS
+                    </span>
+                    <span className="text-[9px] font-medium text-muted-foreground mt-0.5">
+                      Hemanth's Transport
+                    </span>
+                  </div>
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)}>
                   <X className="h-5 w-5" />
