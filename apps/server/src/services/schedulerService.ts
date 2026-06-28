@@ -216,6 +216,80 @@ async function generateDailyReport(): Promise<void> {
 }
 
 /**
+ * Screenshot Privacy Cleanup: Runs on the 1st of every month at 2:00 AM IST.
+ * Deletes uploaded parent payment screenshots from Supabase Storage that are
+ * older than 30 days. The transactionId is ALWAYS preserved in the database.
+ */
+async function cleanupOldScreenshots(): Promise<void> {
+  try {
+    logger.info('Running monthly screenshot privacy cleanup...');
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // Find PENDING payments older than 30 days that have a stored screenshot
+    const paymentsWithScreenshots = await prisma.payment.findMany({
+      where: {
+        status: 'PENDING',
+        createdAt: { lte: thirtyDaysAgo },
+        remarks: { contains: 'Storage: screenshots/' },
+      },
+      select: { id: true, transactionId: true, remarks: true },
+    });
+
+    if (paymentsWithScreenshots.length === 0) {
+      logger.info('No screenshots eligible for cleanup this cycle.');
+      return;
+    }
+
+    logger.info(`Found ${paymentsWithScreenshots.length} screenshots to clean up.`);
+
+    const { getSupabase } = await import('../lib/supabase');
+    const supabase = getSupabase();
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'receipts';
+
+    let deleted = 0;
+    let failed = 0;
+
+    for (const payment of paymentsWithScreenshots) {
+      if (!payment.remarks) continue;
+
+      // Extract the storage path from the remarks field
+      const match = payment.remarks.match(/Storage: (screenshots\/[^\s.]+\.[a-z]+)/);
+      if (!match) continue;
+
+      const storagePath = match[1];
+
+      try {
+        const { error } = await supabase.storage.from(bucket).remove([storagePath]);
+
+        if (error) {
+          logger.error(`Failed to delete screenshot ${storagePath} for payment ${payment.id}: ${error.message}`);
+          failed++;
+        } else {
+          // Update remarks to note screenshot was purged — transactionId stays intact
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: {
+              remarks: `[Screenshot deleted after 30 days for privacy]. TxID preserved: ${payment.transactionId}`,
+            },
+          });
+          deleted++;
+          logger.info(`Deleted screenshot: ${storagePath} (payment: ${payment.id})`);
+        }
+      } catch (err) {
+        logger.error(`Error deleting screenshot for payment ${payment.id}:`, err);
+        failed++;
+      }
+    }
+
+    logger.info(`Screenshot cleanup complete. Deleted: ${deleted}, Failed: ${failed}.`);
+  } catch (error) {
+    logger.error('Error in screenshot privacy cleanup job:', error);
+  }
+}
+
+/**
  * Initializes cron jobs for automated system operations
  */
 export async function initScheduler(): Promise<void> {
@@ -239,5 +313,14 @@ export async function initScheduler(): Promise<void> {
     timezone: 'Asia/Kolkata',
   });
 
-  logger.info('⏰ Scheduler successfully loaded with 2 cron jobs (Asia/Kolkata).');
+  // 3. Screenshot Privacy Cleanup (1st of every month at 2:00 AM IST)
+  cron.schedule('0 2 1 * *', () => {
+    logger.info('Cron Triggered: Monthly Screenshot Privacy Cleanup');
+    cleanupOldScreenshots().catch((err) => logger.error('Screenshot cleanup cron failed:', err));
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
+
+  logger.info('⏰ Scheduler successfully loaded with 3 cron jobs (Asia/Kolkata).');
 }

@@ -11,17 +11,17 @@ let clientPhone: string | null = null;
 
 export const TEMPLATES: Record<MessageType, string> = {
   [MessageType.REMINDER_1]:
-    'Dear {parentName},\n\nTransport fee reminder for {studentName}:\nTransport fee of ₹{amount} for {month} is due.\nKindly pay before 10th.\n\nPayment Options:\n• PhonePe/GPay: 9010009976\n• UPI ID: {upiId}\n\nKindly update your payment screenshot and reference ID to confirm: {webAppUrl}/pay-confirm\n\nThank you,\n{businessName}',
+    'Dear {parentName},\n\n🚌 *Transport Fee Reminder*\n\nFee of *₹{amount}* for *{month}* is due for *{studentName}*.\nKindly pay before the 10th to avoid disruption.\n\n💳 *Payment Options:*\n• PhonePe / GPay: *9010009976*\n• UPI ID: *{upiId}*\n\n✅ *Already Paid?*\nPlease upload your payment screenshot here so we can mark it as paid quickly:\n👉 {webAppUrl}/pay-confirm\n\nThank you 🙏\n_{businessName}_',
   [MessageType.REMINDER_2]:
-    'Dear {parentName},\n\nReminder: Transport fee of ₹{amount} for {month} is still pending for {studentName}. Please pay before 15th.\n\nKindly update your payment screenshot and reference ID to confirm: {webAppUrl}/pay-confirm\n\nThank you,\n{businessName}',
+    'Dear {parentName},\n\n⚠️ *Pending Fee Alert*\n\nTransport fee of *₹{amount}* for *{month}* is still unpaid for *{studentName}*.\nPlease clear before the 15th.\n\n✅ *Already Paid?*\nUpload your payment screenshot here — takes only 30 seconds:\n👉 {webAppUrl}/pay-confirm\n\nThank you,\n_{businessName}_',
   [MessageType.REMINDER_3]:
-    'URGENT NOTICE: Dear {parentName},\n\nTransport fee of ₹{amount} for {month} is highly overdue for {studentName}. Please clear it immediately to avoid route suspension.\n\nKindly update your payment screenshot and reference ID to confirm: {webAppUrl}/pay-confirm\n\nThank you,\n{businessName}',
+    'Dear {parentName},\n\n🚨 *URGENT: Fee Overdue*\n\nTransport fee of *₹{amount}* for *{month}* is highly overdue for *{studentName}*. Please pay *immediately* to avoid suspension of transport service.\n\n✅ *Already Paid?*\nSubmit your proof here so we can verify right away:\n👉 {webAppUrl}/pay-confirm\n\nThank you,\n_{businessName}_',
   [MessageType.FINAL]:
-    'FINAL WARNING: Dear {parentName},\n\nTransport fee of ₹{amount} for {month} is now OVERDUE for {studentName}.\nPlease pay immediately to avoid service disruption.\n\nKindly update your payment screenshot and reference ID to confirm: {webAppUrl}/pay-confirm\n\nThank you,\n{businessName}',
+    'Dear {parentName},\n\n🚫 *FINAL NOTICE*\n\nTransport fee of *₹{amount}* for *{month}* is now OVERDUE for *{studentName}*.\nService will be *suspended* if not cleared immediately.\n\n✅ *Already Paid?*\nSubmit proof here to avoid disruption:\n👉 {webAppUrl}/pay-confirm\n\nThank you,\n_{businessName}_',
   [MessageType.CONFIRMATION]:
-    '✅ Payment Received!\n\nDear {parentName}, ₹{amount} received for {month} ({studentName}).\nReceipt No: {receiptId}\n\nThank you! 🙏\n{businessName}',
+    '✅ *Payment Received!*\n\nDear {parentName}, ₹{amount} received for *{month}* — *{studentName}*.\nReceipt No: `{receiptId}`\n\nThank you! 🙏\n_{businessName}_',
   [MessageType.EMERGENCY]:
-    '🚨 EMERGENCY TRANSPORT NOTICE:\n\n{body}\n\n{businessName}',
+    '🚨 EMERGENCY TRANSPORT NOTICE:\n\n{body}\n\n_{businessName}_',
   [MessageType.BROADCAST]:
     '{body}',
 };

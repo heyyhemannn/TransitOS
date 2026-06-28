@@ -414,7 +414,9 @@ paymentsRouter.get(
 
 /**
  * POST /api/v1/payments/parent-confirm
- * Public endpoint for parents to submit payment confirmation screenshots and transaction IDs
+ * Public endpoint for parents to submit payment confirmation screenshots and transaction IDs.
+ * Screenshots are stored securely in Supabase private storage.
+ * Transaction IDs are always preserved in the database.
  */
 paymentsRouter.post(
   '/parent-confirm',
@@ -449,7 +451,7 @@ paymentsRouter.post(
         return;
       }
 
-      // Check if this transaction ID already exists
+      // Check if this transaction ID already exists (prevent duplicates)
       const existingPayment = await prisma.payment.findUnique({
         where: { transactionId },
       });
@@ -479,27 +481,51 @@ paymentsRouter.post(
       const targetYear = schedule ? schedule.year : currentYear;
       const targetAmount = schedule ? schedule.amount : student.monthlyFee;
 
-      // Handle saving screenshot base64 locally
-      let remarks = 'Screenshot manually uploaded by Parent.';
+      // Upload screenshot to Supabase private storage (if provided)
+      // The transactionId is ALWAYS saved in the DB regardless of upload success/failure.
+      let screenshotStoragePath: string | null = null;
       if (screenshotBase64) {
         try {
-          const fs = require('fs');
-          const path = require('path');
-          const dir = path.join(__dirname, '../../assets/screenshots');
-          if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+          const { getSupabase } = await import('../lib/supabase');
+          const supabase = getSupabase();
+
+          // Strip data URL prefix if present
+          const base64Data = screenshotBase64.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+
+          // Detect content type from base64 header
+          const contentType = screenshotBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+          const extension = contentType === 'image/png' ? 'png' : 'jpg';
+
+          // Path: receipts/screenshots/{transactionId}.{ext}
+          // Stored in private bucket — never publicly accessible
+          const storagePath = `screenshots/${transactionId}.${extension}`;
+          const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'receipts';
+
+          const { error: uploadError } = await supabase.storage
+            .from(bucket)
+            .upload(storagePath, buffer, {
+              contentType,
+              upsert: false, // Prevent overwriting — each TxID is unique
+            });
+
+          if (uploadError) {
+            logger.error(`Supabase screenshot upload failed for TxID ${transactionId}:`, uploadError.message);
+          } else {
+            screenshotStoragePath = storagePath;
+            logger.info(`Screenshot securely uploaded to Supabase: ${bucket}/${storagePath}`);
           }
-          const base64Data = screenshotBase64.replace(/^data:image\/\w+;base64,/, "");
-          const filePath = path.join(dir, `${transactionId}.jpg`);
-          fs.writeFileSync(filePath, base64Data, 'base64');
-          logger.info(`Saved parent screenshot locally at: ${filePath}`);
-          remarks += ` Saved as assets/screenshots/${transactionId}.jpg`;
-        } catch (err) {
-          logger.error('Failed to save parent screenshot file locally:', err);
+        } catch (uploadErr) {
+          logger.error('Screenshot upload error (non-fatal). TxID still saved.', uploadErr);
         }
       }
 
-      // Create a PENDING payment record
+      // Build remarks — always include TxID, optionally note screenshot path
+      const remarks = screenshotStoragePath
+        ? `Parent screenshot saved securely. Storage: ${screenshotStoragePath}. Phone: ${phone}`
+        : `No screenshot provided. Phone: ${phone}`;
+
+      // Create a PENDING payment record — transactionId is always persisted
       await prisma.payment.create({
         data: {
           studentId: student.id,
@@ -510,11 +536,11 @@ paymentsRouter.post(
           transactionId,
           method: 'UPI',
           status: 'PENDING',
-          remarks: `${remarks} Submitted phone: ${phone}`,
+          remarks,
         },
       });
 
-      logger.info(`Parent submitted pending payment: Student: ${student.name}, TxID: ${transactionId}`);
+      logger.info(`Parent payment submission: Student: ${student.name}, TxID: ${transactionId}, Screenshot: ${screenshotStoragePath ? 'YES' : 'NO'}`);
 
       res.json({
         success: true,
@@ -522,6 +548,7 @@ paymentsRouter.post(
           message: 'Payment confirmation successfully submitted! Admin will verify and generate receipt shortly.',
           studentName: student.name,
           amount: targetAmount,
+          screenshotUploaded: screenshotStoragePath !== null,
         },
       });
     } catch (error) {
