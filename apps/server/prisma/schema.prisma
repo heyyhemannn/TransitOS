@@ -1,0 +1,190 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/@prisma/client"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  DRIVER
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PaymentMethod {
+  UPI
+  CASH
+  BANK
+  OTHER
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+  OVERDUE
+}
+
+enum MessageType {
+  REMINDER_1
+  REMINDER_2
+  REMINDER_3
+  FINAL
+  CONFIRMATION
+  EMERGENCY
+  BROADCAST
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODELS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         UserRole
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  payments     Payment[]
+  auditLogs    AuditLog[]
+}
+
+model Student {
+  id             String            @id @default(cuid())
+  name           String
+  school         String
+  class          String
+  routeId        String?
+  route          Route?            @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  parentName     String
+  fatherMobile   String
+  motherMobile   String?
+  whatsappNumber String
+  monthlyFee     Int // in paise (e.g. 250000 = ₹2500)
+  joiningDate    DateTime
+  status         StudentStatus     @default(ACTIVE)
+  pickupAddress  String
+  dropAddress    String
+  pickupTime     String // e.g. "07:30"
+  dropTime       String // e.g. "14:00"
+  vehicleNumber  String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  payments       Payment[]
+  feeSchedules   FeeSchedule[]
+  messages       WhatsAppMessage[]
+}
+
+model Route {
+  id            String    @id @default(cuid())
+  name          String
+  driverName    String?
+  vehicleNumber String?
+  isActive      Boolean   @default(true)
+  students      Student[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  studentId     String
+  student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  amount        Int // in paise
+  month         Int // 1 - 12
+  year          Int
+  paidAt        DateTime?
+  transactionId String?       @unique
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  receiptUrl    String?
+  remarks       String?
+  createdBy     String?
+  creator       User?         @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([studentId, month, year])
+  @@index([studentId])
+  @@index([month, year])
+  @@index([status])
+}
+
+model FeeSchedule {
+  id         String    @id @default(cuid())
+  studentId  String
+  student    Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  month      Int
+  year       Int
+  dueDate    DateTime
+  amount     Int // in paise
+  isPaid     Boolean   @default(false)
+  paidAt     DateTime?
+  overdueAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([studentId, month, year])
+}
+
+model WhatsAppMessage {
+  id           String        @id @default(cuid())
+  studentId    String?
+  student      Student?      @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  phone        String
+  type         MessageType
+  body         String
+  scheduledAt  DateTime?
+  sentAt       DateTime?
+  status       MessageStatus @default(QUEUED)
+  errorMessage String?
+  createdAt    DateTime      @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String // e.g. "CREATE_PAYMENT", "UPDATE_STUDENT"
+  entity    String // e.g. "Payment", "Student"
+  entityId  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+}
+
+model DailyReport {
+  id             String   @id @default(cuid())
+  date           DateTime @unique
+  totalCollected Int // in paise
+  paymentCount   Int
+  pendingCount   Int
+  createdAt      DateTime @default(now())
+}
+
+model Settings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

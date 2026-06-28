@@ -1,0 +1,42 @@
+# Node
+node_modules/
+.npm
+npm-debug.log*
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# WhatsApp session
+apps/server/whatsapp-session/
+
+# Prisma
+apps/server/prisma/migrations/dev.db
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+
+# Temp
+tmp/
+temp/
