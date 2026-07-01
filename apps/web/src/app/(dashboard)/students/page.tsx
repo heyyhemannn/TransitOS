@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
@@ -18,6 +19,7 @@ import {
   XCircle,
   FileSpreadsheet,
   Users,
+  ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useForm } from 'react-hook-form';
@@ -358,6 +360,11 @@ export default function StudentsPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                      <DropdownMenuItem asChild className="gap-2">
+                        <Link href={`/students/${student.id}`}>
+                          <ExternalLink className="h-3.5 w-3.5" /> View Details
+                        </Link>
+                      </DropdownMenuItem>
                       {canMutate && (
                         <DropdownMenuItem onClick={() => handleEditClick(student)} className="gap-2">
                           <Edit2 className="h-3.5 w-3.5" /> Edit Profile
@@ -483,6 +490,11 @@ export default function StudentsPage() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem asChild className="gap-2">
+                            <Link href={`/students/${student.id}`}>
+                              <ExternalLink className="h-3.5 w-3.5" /> View Details
+                            </Link>
+                          </DropdownMenuItem>
                           {canMutate && (
                             <DropdownMenuItem onClick={() => handleEditClick(student)} className="gap-2">
                               <Edit2 className="h-3.5 w-3.5" /> Edit Profile

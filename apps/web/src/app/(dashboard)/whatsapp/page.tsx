@@ -11,11 +11,10 @@ import {
   Loader2,
   RefreshCw,
   CheckCircle2,
-  AlertCircle,
-  HelpCircle,
   Wifi,
   WifiOff,
   AlertTriangle,
+  HelpCircle,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -36,6 +35,13 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/lib/auth';
 import { usePageRole } from '../layout';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const testMessageSchema = z.object({
   phone: z.string().regex(/^[6-9]\d{9}$/, 'Must be a valid 10-digit Indian mobile number'),
@@ -59,24 +65,18 @@ export default function WhatsAppPage() {
 
   // Local SSE-driven state (source of truth for real-time updates)
   const [liveStatus, setLiveStatus] = React.useState<WAStatus | null>(null);
-  const [liveQR, setLiveQR] = React.useState<string | null | undefined>(undefined); // undefined = not yet loaded
+  const [liveQR, setLiveQR] = React.useState<string | null | undefined>(undefined);
   const [sseConnected, setSseConnected] = React.useState(false);
 
   const testForm = useForm<TestMessageFormValues>({
     resolver: zodResolver(testMessageSchema),
-    defaultValues: {
-      body: 'Hello from TransitOS! This is a secure test connection message.',
-    },
+    defaultValues: { body: 'Hello from TransitOS! This is a secure test connection message.' },
   });
 
-  // ─── SSE: Real-time event stream ──────────────────────────────────────────
+  // ─── SSE: Real-time event stream ──────────────────────────────────────────────
   React.useEffect(() => {
-    // Build the SSE URL using the same base as the API
     const base = process.env.NEXT_PUBLIC_API_URL || '';
     const token = storeToken || useAuthStore.getState().accessToken;
-
-    // EventSource does not support custom headers natively.
-    // We use a URL query param to pass the token for the SSE connection.
     const url = `${base}/whatsapp/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
     let es: EventSource;
@@ -85,44 +85,32 @@ export default function WhatsAppPage() {
     function connect() {
       es = new EventSource(url, { withCredentials: true });
 
-      es.onopen = () => {
-        setSseConnected(true);
-      };
+      es.onopen = () => setSseConnected(true);
 
       es.addEventListener('status', (e) => {
         try {
           const data: WAStatus = JSON.parse(e.data);
           setLiveStatus(data);
-          // If now connected, clear the QR
-          if (data.connected) {
-            setLiveQR(null);
-          }
-          // Invalidate the polling cache too so other components stay in sync
+          if (data.connected) setLiveQR(null);
           queryClient.setQueryData(['wa-device-status'], data);
-        } catch {
-          // ignore parse errors
-        }
+        } catch { /* ignore */ }
       });
 
       es.addEventListener('qr', (e) => {
         try {
           const { qr } = JSON.parse(e.data);
           setLiveQR(qr);
-        } catch {
-          // ignore parse errors
-        }
+        } catch { /* ignore */ }
       });
 
       es.onerror = () => {
         setSseConnected(false);
         es.close();
-        // Auto-reconnect after 5s
         retryTimeout = setTimeout(connect, 5000);
       };
     }
 
     connect();
-
     return () => {
       clearTimeout(retryTimeout);
       es?.close();
@@ -130,23 +118,20 @@ export default function WhatsAppPage() {
     };
   }, [queryClient]);
 
-  // ─── Fallback polling (backs up SSE for initial load & token refresh) ─────
+  // ─── Fallback polling ─────────────────────────────────────────────────────────
   const { data: polledStatus, isLoading: statusLoading } = useQuery({
     queryKey: ['wa-device-status'],
     queryFn: async () => {
       const res = await api.get<{ data: WAStatus }>('/whatsapp/status');
       return res.data.data;
     },
-    // Poll every 5s when offline, 30s when online — SSE takes over in real-time
     refetchInterval: (query) => (query.state.data?.connected ? 30000 : 5000),
-    // On first load set live state
     select: (data) => {
       if (!liveStatus) setLiveStatus(data);
       return data;
     },
   });
 
-  // Fallback QR polling (SSE handles real-time, this is backup)
   const { data: polledQR, isLoading: qrLoading } = useQuery({
     queryKey: ['wa-qr-code'],
     queryFn: async () => {
@@ -159,45 +144,63 @@ export default function WhatsAppPage() {
       return connected ? false : 8000;
     },
     select: (data) => {
-      // Only update liveQR from poll if SSE hasn't provided a value yet
-      if (liveQR === undefined && data.qr) {
-        setLiveQR(data.qr);
-      }
+      if (liveQR === undefined && data.qr) setLiveQR(data.qr);
       return data;
     },
   });
 
-  // ─── Derived state ─────────────────────────────────────────────────────────
+  // ─── Derived state ────────────────────────────────────────────────────────────
   const status = liveStatus ?? polledStatus;
   const isConnected = status?.connected ?? false;
   const isConnecting = status?.connecting ?? false;
   const isAuthenticating = status?.authenticating ?? false;
   const displayQR = liveQR !== undefined ? liveQR : polledQR?.qr;
 
-  // ─── Test Message Mutation ─────────────────────────────────────────────────
+  // ─── Test Message Mutation ────────────────────────────────────────────────────
   const sendTestMutation = useMutation({
     mutationFn: async (values: TestMessageFormValues) => {
       await api.post('/whatsapp/send', values);
     },
     onSuccess: () => {
-      toast({
-        title: 'Message Sent!',
-        description: 'Test WhatsApp notification successfully dispatched.',
-        variant: 'success',
-      });
-      testForm.reset({
-        phone: '',
-        body: 'Hello from TransitOS! This is a secure test connection message.',
-      });
+      toast({ title: 'Message Sent!', description: 'Test WhatsApp notification dispatched.', variant: 'success' as any });
+      testForm.reset({ phone: '', body: 'Hello from TransitOS! This is a secure test connection message.' });
     },
     onError: (err: any) => {
-      toast({
-        title: 'Failed to send',
-        description:
-          err.response?.data?.error ||
-          'Ensure WhatsApp client is online and number is active.',
-        variant: 'destructive',
+      toast({ title: 'Failed', description: err.response?.data?.error || 'Ensure WhatsApp is online.', variant: 'destructive' });
+    },
+  });
+
+  // ─── Broadcast Mutation ───────────────────────────────────────────────────────
+  const broadcastMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.post<{ data: { sent: number; failed: number } }>('/whatsapp/broadcast-unpaid');
+      return res.data.data;
+    },
+    onSuccess: (data) => {
+      toast({ title: 'Broadcast Complete', description: `Sent: ${data?.sent ?? '?'}, Failed: ${data?.failed ?? 0}.`, variant: 'success' as any });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Broadcast Failed', description: err.response?.data?.error || 'Failed', variant: 'destructive' });
+    },
+  });
+
+  // ─── Manual Trigger ───────────────────────────────────────────────────────────
+  const [triggerSchool, setTriggerSchool] = React.useState('');
+  const [triggerReminderType, setTriggerReminderType] = React.useState('REMINDER_1');
+
+  const triggerMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.post<{ data: { sent: number; failed: number } }>('/whatsapp/trigger-reminder', {
+        schoolName: triggerSchool,
+        reminderType: triggerReminderType,
       });
+      return res.data.data;
+    },
+    onSuccess: (data) => {
+      toast({ title: 'Trigger Complete', description: `Sent: ${data?.sent ?? '?'}, Failed: ${data?.failed ?? 0}`, variant: 'success' as any });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Trigger Failed', description: err.response?.data?.error || 'Failed', variant: 'destructive' });
     },
   });
 
@@ -211,7 +214,7 @@ export default function WhatsAppPage() {
     toast({ title: 'Status Synced', description: 'WhatsApp device state refreshed.' });
   };
 
-  // ─── Connection status badge ───────────────────────────────────────────────
+  // ─── Status Badge ─────────────────────────────────────────────────────────────
   function StatusBadge() {
     if (isConnected) {
       return (
@@ -246,66 +249,45 @@ export default function WhatsAppPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight">WhatsApp Gateway</h2>
-          <p className="text-sm text-muted-foreground">
-            Pair devices, check connection status, and send tests
-          </p>
+          <p className="text-sm text-muted-foreground">Pair devices, send broadcasts, and view message logs</p>
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge />
           {!canMutate && (
-            <Badge
-              variant="outline"
-              className="text-amber-500 border-amber-500 bg-amber-500/10 font-bold"
-            >
-              View Only
-            </Badge>
+            <Badge variant="outline" className="text-amber-500 border-amber-500 bg-amber-500/10 font-bold">View Only</Badge>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleManualRefresh}
-            className="gap-2 font-bold"
-          >
+          <Button variant="outline" size="sm" onClick={handleManualRefresh} className="gap-2 font-bold">
             <RefreshCw className="h-4 w-4" />
             Sync Status
           </Button>
         </div>
       </div>
 
-      {/* SSE connection indicator */}
       {!sseConnected && (
         <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          Real-time stream disconnected — using polling fallback. Status will update every 5 seconds.
+          Real-time stream disconnected — using polling fallback.
         </div>
       )}
 
+      {/* ── Section 1: Device + Test Message ── */}
       <div className="grid gap-6 md:grid-cols-2">
-        {/* ── Device Connection Card ── */}
+        {/* Device Connection Card */}
         <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md flex flex-col justify-between">
           <CardHeader>
             <CardTitle className="text-lg font-bold flex items-center gap-2">
-              {isConnected ? (
-                <Link2 className="h-5 w-5 text-green-500" />
-              ) : (
-                <Link2Off className="h-5 w-5 text-muted-foreground" />
-              )}
+              {isConnected ? <Link2 className="h-5 w-5 text-green-500" /> : <Link2Off className="h-5 w-5 text-muted-foreground" />}
               Device Connection
             </CardTitle>
-            <CardDescription>
-              Pair with WhatsApp Web via QR to enable auto confirmations
-            </CardDescription>
+            <CardDescription>Pair with WhatsApp Web via QR to enable auto confirmations</CardDescription>
           </CardHeader>
-
           <CardContent className="flex flex-col items-center justify-center py-6 min-h-[320px]">
             {statusLoading && !status ? (
-              /* Initial load */
               <div className="flex flex-col items-center gap-2">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Syncing driver gateway logs...</p>
+                <p className="text-sm text-muted-foreground">Syncing gateway logs...</p>
               </div>
             ) : isConnected ? (
-              /* Connected state */
               <div className="flex flex-col items-center text-center space-y-4">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-500/15 text-green-500 shadow-lg shadow-green-500/10">
                   <CheckCircle2 className="h-8 w-8" />
@@ -313,89 +295,59 @@ export default function WhatsAppPage() {
                 <div>
                   <h4 className="text-md font-bold text-foreground">Link Established!</h4>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Connected as:{' '}
-                    <span className="font-mono font-semibold text-primary">
-                      +{status?.phone}
-                    </span>
+                    Connected as: <span className="font-mono font-semibold text-primary">+{status?.phone}</span>
                   </p>
                 </div>
                 <div className="text-xs text-muted-foreground max-w-xs border rounded-lg p-3 bg-muted/20">
-                  ✨ Confirmation notifications and due alerts will now be sent automatically.
-                  Keep this session active.
+                  ✨ Confirmation notifications and due alerts will now be sent automatically. Keep this session active.
                 </div>
               </div>
             ) : isAuthenticating ? (
-              /* Scanned — waiting for ready event */
               <div className="flex flex-col items-center text-center space-y-4">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/15 text-amber-500">
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
                 <div>
                   <h4 className="text-md font-bold text-foreground">QR Scanned!</h4>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Authenticating with WhatsApp servers…
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">Authenticating with WhatsApp servers…</p>
                 </div>
-                <p className="text-xs text-muted-foreground">This usually takes 5–15 seconds.</p>
               </div>
             ) : (
-              /* Offline — show QR or generating spinner */
               <div className="flex flex-col items-center text-center space-y-4 w-full">
                 {displayQR ? (
                   <div className="relative group border-2 border-slate-200 dark:border-slate-700 p-3 rounded-2xl bg-white shadow-inner">
-                    <img
-                      src={displayQR}
-                      alt="WhatsApp Pair QR Code"
-                      className="h-52 w-52 object-contain"
-                    />
+                    <img src={displayQR} alt="WhatsApp Pair QR Code" className="h-52 w-52 object-contain" />
                     <div className="absolute inset-0 rounded-2xl group-hover:bg-black/5 transition-colors pointer-events-none" />
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-10">
                     <QrCode className="h-12 w-12 text-muted-foreground animate-pulse mb-3" />
-                    <p className="text-sm font-semibold text-muted-foreground">
-                      Generating connection key…
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1 max-w-[240px]">
-                      Establishing secure bridge to WhatsApp Web servers.
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleManualRefresh}
-                      className="mt-4 text-xs font-bold gap-1 text-primary"
-                    >
+                    <p className="text-sm font-semibold text-muted-foreground">Generating connection key…</p>
+                    <Button size="sm" variant="ghost" onClick={handleManualRefresh} className="mt-4 text-xs font-bold gap-1 text-primary">
                       <RefreshCw className="h-3 w-3" /> Retry
                     </Button>
                   </div>
                 )}
-
                 <div className="text-xs text-muted-foreground max-w-xs leading-relaxed">
-                  Open WhatsApp on your mobile →{' '}
-                  <span className="font-semibold text-foreground">Linked Devices</span> → scan QR.
+                  Open WhatsApp → <span className="font-semibold text-foreground">Linked Devices</span> → scan QR.
                   <br />
-                  <span className="text-amber-600 dark:text-amber-400 mt-1 block">
-                    ⚠ QR code refreshes every ~60s. Scan using Linked Devices.
-                  </span>
+                  <span className="text-amber-600 dark:text-amber-400 mt-1 block">⚠ QR refreshes every ~60s.</span>
                 </div>
               </div>
             )}
           </CardContent>
-
           <CardFooter className="bg-muted/10 border-t py-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <HelpCircle className="h-4 w-4" />
               <span>
-                Gateway runs in isolated Chromium threads.{' '}
-                <span className="text-amber-600 dark:text-amber-400 font-medium">
-                  Re-deploying the server will require re-scanning.
-                </span>
+                Session persists across restarts via DB.{' '}
+                <span className="text-amber-600 dark:text-amber-400 font-medium">Re-scan only needed if session expires.</span>
               </span>
             </div>
           </CardFooter>
         </Card>
 
-        {/* ── Test Gateway Card ── */}
+        {/* Test Gateway Card */}
         <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md flex flex-col justify-between">
           <CardHeader>
             <CardTitle className="text-lg font-bold flex items-center gap-2">
@@ -404,9 +356,7 @@ export default function WhatsAppPage() {
             </CardTitle>
             <CardDescription>Dispatch a test WhatsApp message to verify the link</CardDescription>
           </CardHeader>
-          <form
-            onSubmit={testForm.handleSubmit((values) => sendTestMutation.mutate(values))}
-          >
+          <form onSubmit={testForm.handleSubmit((values) => sendTestMutation.mutate(values))}>
             <CardContent className="space-y-4 min-h-[320px]">
               {!isConnected && (
                 <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
@@ -415,26 +365,14 @@ export default function WhatsAppPage() {
                 </div>
               )}
               <div className="space-y-2">
-                <Label htmlFor="phone" className="text-xs font-bold text-muted-foreground">
-                  Recipient Indian Mobile (10-Digit)
-                </Label>
-                <Input
-                  id="phone"
-                  placeholder="E.g. 9848022338"
-                  className="bg-card border-slate-200 dark:border-slate-800"
-                  {...testForm.register('phone')}
-                />
+                <Label htmlFor="phone" className="text-xs font-bold text-muted-foreground uppercase">Recipient Mobile (10-Digit)</Label>
+                <Input id="phone" placeholder="E.g. 9848022338" className="min-h-[48px] text-base" {...testForm.register('phone')} />
                 {testForm.formState.errors.phone && (
-                  <p className="text-xs text-red-500">
-                    {testForm.formState.errors.phone.message}
-                  </p>
+                  <p className="text-xs text-red-500">{testForm.formState.errors.phone.message}</p>
                 )}
               </div>
-
               <div className="space-y-2">
-                <Label htmlFor="body" className="text-xs font-bold text-muted-foreground">
-                  Custom Message Body
-                </Label>
+                <Label htmlFor="body" className="text-xs font-bold text-muted-foreground uppercase">Message Body</Label>
                 <textarea
                   id="body"
                   rows={6}
@@ -443,40 +381,238 @@ export default function WhatsAppPage() {
                   {...testForm.register('body')}
                 />
                 {testForm.formState.errors.body && (
-                  <p className="text-xs text-red-500">
-                    {testForm.formState.errors.body.message}
-                  </p>
+                  <p className="text-xs text-red-500">{testForm.formState.errors.body.message}</p>
                 )}
               </div>
             </CardContent>
             <CardFooter className="bg-muted/10 border-t py-4 flex justify-end">
               {canMutate ? (
-                <Button
-                  type="submit"
-                  disabled={!isConnected || sendTestMutation.isPending}
-                  className="gap-2 font-bold shadow-md shadow-primary/10"
-                >
+                <Button type="submit" disabled={!isConnected || sendTestMutation.isPending} className="gap-2 font-bold shadow-md shadow-primary/10">
                   {sendTestMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Sending…
-                    </>
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</>
                   ) : (
-                    <>
-                      <Send className="h-4 w-4" />
-                      Send Test Message
-                    </>
+                    <><Send className="h-4 w-4" /> Send Test Message</>
                   )}
                 </Button>
               ) : (
-                <p className="text-xs text-muted-foreground italic">
-                  Admin access required to send test messages.
-                </p>
+                <p className="text-xs text-muted-foreground italic">Admin access required to send test messages.</p>
               )}
             </CardFooter>
           </form>
         </Card>
       </div>
+
+      {/* ── Section 2: Broadcast ── */}
+      {canMutate && (
+        <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md">
+          <CardHeader>
+            <CardTitle className="text-lg font-bold flex items-center gap-2">
+              <Send className="h-5 w-5 text-blue-500" />
+              Broadcast Reminder
+            </CardTitle>
+            <CardDescription>Send a WhatsApp fee reminder to all unpaid students this month</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!isConnected && (
+              <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                WhatsApp must be connected to broadcast.
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground">
+              Sends a fee reminder to all students whose payment is unpaid or overdue for the current month. Messages are staggered to avoid WhatsApp rate limits.
+            </p>
+          </CardContent>
+          <CardFooter className="bg-muted/10 border-t py-4 flex justify-end">
+            <Button
+              disabled={!isConnected || broadcastMutation.isPending}
+              className="gap-2 font-bold shadow-md shadow-primary/10"
+              onClick={() => broadcastMutation.mutate()}
+            >
+              {broadcastMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</>
+              ) : (
+                <><Send className="h-4 w-4" /> Broadcast to All Unpaid</>
+              )}
+            </Button>
+          </CardFooter>
+        </Card>
+      )}
+
+      {/* ── Section 3: Manual School Trigger ── */}
+      {canMutate && (
+        <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md">
+          <CardHeader>
+            <CardTitle className="text-lg font-bold flex items-center gap-2">
+              <Wifi className="h-5 w-5 text-indigo-500" />
+              Manual School Trigger
+            </CardTitle>
+            <CardDescription>Manually fire a reminder batch for a specific school now</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!isConnected && (
+              <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                WhatsApp must be connected.
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-xs font-bold text-muted-foreground uppercase">School</Label>
+                <Select onValueChange={setTriggerSchool}>
+                  <SelectTrigger className="min-h-[48px] text-sm">
+                    <SelectValue placeholder="Select school…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DPS Phase 2">DPS Phase 2</SelectItem>
+                    <SelectItem value="Unicent">Unicent</SelectItem>
+                    <SelectItem value="DPS Brindavanam">DPS Brindavanam</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-bold text-muted-foreground uppercase">Reminder Type</Label>
+                <Select defaultValue="REMINDER_1" onValueChange={setTriggerReminderType}>
+                  <SelectTrigger className="min-h-[48px] text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="REMINDER_1">Reminder 1 (Friendly)</SelectItem>
+                    <SelectItem value="REMINDER_2">Reminder 2 (Urgent)</SelectItem>
+                    <SelectItem value="FINAL">Final Notice</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter className="bg-muted/10 border-t py-4 flex justify-end">
+            <Button
+              disabled={!isConnected || !triggerSchool || triggerMutation.isPending}
+              className="gap-2 font-bold shadow-md shadow-primary/10"
+              onClick={() => triggerMutation.mutate()}
+            >
+              {triggerMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Triggering…</>
+              ) : (
+                <><Send className="h-4 w-4" /> Trigger Now</>
+              )}
+            </Button>
+          </CardFooter>
+        </Card>
+      )}
+
+      {/* ── Section 4: Message Logs ── */}
+      <MessageLogsCard />
     </div>
+  );
+}
+
+// ─── Message Logs Card ────────────────────────────────────────────────────────────
+function MessageLogsCard() {
+  const [statusFilter, setStatusFilter] = React.useState('ALL');
+
+  const { data: logs, isLoading } = useQuery({
+    queryKey: ['whatsapp-logs', statusFilter],
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+      if (statusFilter !== 'ALL') params.status = statusFilter;
+      const res = await api.get<{
+        data: Array<{
+          id: string;
+          phone: string;
+          type: string;
+          status: string;
+          body: string;
+          createdAt: string;
+          student: { name: string } | null;
+        }>;
+      }>('/whatsapp/logs', { params });
+      return res.data.data;
+    },
+    staleTime: 30_000,
+  });
+
+  const STATUS_COLORS: Record<string, string> = {
+    SENT: 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20',
+    FAILED: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
+    PENDING: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+  };
+
+  return (
+    <Card className="border-slate-200 dark:border-slate-800 shadow-md">
+      <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <div>
+          <CardTitle className="text-lg font-bold flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-muted-foreground" />
+            Message Logs
+          </CardTitle>
+          <CardDescription>Recent WhatsApp messages sent through the system</CardDescription>
+        </div>
+        <Select defaultValue="ALL" onValueChange={setStatusFilter}>
+          <SelectTrigger className="h-8 text-xs w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All Status</SelectItem>
+            <SelectItem value="SENT">Sent</SelectItem>
+            <SelectItem value="FAILED">Failed</SelectItem>
+            <SelectItem value="PENDING">Pending</SelectItem>
+          </SelectContent>
+        </Select>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[600px]">
+              <thead>
+                <tr className="border-b">
+                  {['Date', 'Student', 'Type', 'Phone', 'Status', 'Preview'].map((h) => (
+                    <th key={h} className="text-left py-2 px-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {logs?.map((log) => (
+                  <tr key={log.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="py-3 px-3 text-xs text-muted-foreground whitespace-nowrap">
+                      {new Date(log.createdAt).toLocaleString('en-IN', {
+                        timeZone: 'Asia/Kolkata',
+                        day: '2-digit',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </td>
+                    <td className="py-3 px-3 font-semibold text-foreground">{log.student?.name ?? '—'}</td>
+                    <td className="py-3 px-3 text-xs font-mono text-muted-foreground">{log.type}</td>
+                    <td className="py-3 px-3 text-xs font-mono text-muted-foreground">{log.phone}</td>
+                    <td className="py-3 px-3">
+                      <Badge className={`border font-bold text-[10px] uppercase ${STATUS_COLORS[log.status] ?? ''}`}>
+                        {log.status}
+                      </Badge>
+                    </td>
+                    <td className="py-3 px-3 max-w-[200px]">
+                      <p className="text-xs text-muted-foreground truncate" title={log.body}>{log.body}</p>
+                    </td>
+                  </tr>
+                ))}
+                {(!logs || logs.length === 0) && (
+                  <tr>
+                    <td colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                      <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30 stroke-1" />
+                      No messages found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

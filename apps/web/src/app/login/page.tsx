@@ -51,7 +51,13 @@ export default function LoginPage() {
         description: 'Successfully authenticated session.',
         variant: 'success',
       });
-      router.push('/dashboard');
+      // Role-based redirect
+      const role = useAuthStore.getState().user?.role;
+      if (role === 'DRIVER') {
+        router.push('/driver');
+      } else {
+        router.push('/dashboard');
+      }
     } catch (err: any) {
       toast({
         title: 'Authentication Failed',
