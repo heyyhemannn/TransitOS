@@ -396,9 +396,12 @@ paymentsRouter.get(
         return;
       }
 
-      // If it's already a full HTTP URL (e.g. from CDN/mock), redirect directly
+      // If it's already a full HTTP URL (e.g. from CDN/mock), return it directly
       if (payment.receiptUrl.startsWith('http://') || payment.receiptUrl.startsWith('https://')) {
-        res.redirect(302, payment.receiptUrl);
+        res.json({
+          success: true,
+          data: payment.receiptUrl,
+        });
         return;
       }
 
@@ -406,7 +409,123 @@ paymentsRouter.get(
       const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
       const signedUrl = await getSignedUrl(bucket, payment.receiptUrl, 3600); // 1 hour expiry
 
-      res.redirect(302, signedUrl);
+      res.json({
+        success: true,
+        data: signedUrl,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/v1/payments/:id/screenshot
+ * Returns a signed URL/JSON response to view the parent payment screenshot
+ */
+paymentsRouter.get(
+  '/:id/screenshot',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      const payment = await prisma.payment.findUnique({
+        where: { id },
+      });
+
+      if (!payment) {
+        res.status(404).json({ success: false, error: 'Payment not found' });
+        return;
+      }
+
+      let screenshotPath = payment.screenshotUrl;
+      if (!screenshotPath && payment.remarks) {
+        // Fallback: parse from remarks string e.g. "Parent screenshot saved. Storage: screenshots/12345.png."
+        const match = payment.remarks.match(/Storage:\s*(screenshots\/[^\s]+)/);
+        if (match) {
+          screenshotPath = match[1];
+          if (screenshotPath.endsWith('.') || screenshotPath.endsWith(',')) {
+            screenshotPath = screenshotPath.slice(0, -1);
+          }
+        }
+      }
+
+      if (!screenshotPath) {
+        res.status(404).json({ success: false, error: 'Screenshot not found for this payment' });
+        return;
+      }
+
+      if (screenshotPath.startsWith('http://') || screenshotPath.startsWith('https://')) {
+        res.json({ success: true, data: screenshotPath });
+        return;
+      }
+
+      const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
+      const signedUrl = await getSignedUrl(bucket, screenshotPath, 3600); // 1 hour expiry
+
+      res.json({
+        success: true,
+        data: signedUrl,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * DELETE /api/v1/payments/:id
+ * Delete a payment record and revert the FeeSchedule isPaid status to unpaid
+ */
+paymentsRouter.delete(
+  '/:id',
+  requireRole(UserRole.ADMIN),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      const payment = await prisma.payment.findUnique({
+        where: { id },
+      });
+
+      if (!payment) {
+        res.status(404).json({ success: false, error: 'Payment not found' });
+        return;
+      }
+
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // 1. Revert FeeSchedule to unpaid
+        await tx.feeSchedule.updateMany({
+          where: {
+            studentId: payment.studentId,
+            month: payment.month,
+            year: payment.year,
+          },
+          data: {
+            isPaid: false,
+            paidAt: null,
+          },
+        });
+
+        // 2. Delete the payment
+        await tx.payment.delete({
+          where: { id },
+        });
+      });
+
+      // Write Audit Log
+      await createAuditLog(req.user?.id || null, 'DELETE_PAYMENT', 'Payment', id, {
+        studentId: payment.studentId,
+        amount: payment.amount,
+        month: payment.month,
+        year: payment.year,
+      });
+
+      res.json({
+        success: true,
+        message: 'Payment deleted and billing status reverted successfully',
+      });
     } catch (error) {
       next(error);
     }
@@ -415,7 +534,6 @@ paymentsRouter.get(
 
 /**
  * POST /api/v1/payments/parent-confirm
- * PUBLIC — no JWT required. Parents submit UPI TxID + screenshot from the WhatsApp pay link.
  */
 publicPaymentsRouter.post(
   '/parent-confirm',
@@ -512,6 +630,7 @@ publicPaymentsRouter.post(
             method: 'UPI',
             status: PaymentStatus.PAID,
             remarks,
+            screenshotUrl: screenshotStoragePath,
           },
         });
 

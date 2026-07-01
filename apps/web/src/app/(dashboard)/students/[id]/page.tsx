@@ -191,6 +191,10 @@ export default function StudentDetailPage() {
       setPayDialogOpen(false);
       payForm.reset();
       queryClient.invalidateQueries({ queryKey: ['student', id] });
+      queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['monthly-chart'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-payments-feed'] });
     },
     onError: (err: any) => {
       toast({

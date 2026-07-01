@@ -15,6 +15,8 @@ import {
   Clock,
   Loader2,
   ExternalLink,
+  Eye,
+  Trash2,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -75,6 +77,65 @@ export default function PaymentsPage() {
   const [uploadOpen, setUploadOpen] = React.useState(false);
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [importSummary, setImportSummary] = React.useState<any | null>(null);
+
+  // Screenshot viewer states
+  const [screenshotOpen, setScreenshotOpen] = React.useState(false);
+  const [viewingScreenshotUrl, setViewingScreenshotUrl] = React.useState<string | null>(null);
+  const [loadingScreenshot, setLoadingScreenshot] = React.useState(false);
+
+  const handleViewScreenshot = async (paymentId: string) => {
+    setLoadingScreenshot(true);
+    setScreenshotOpen(true);
+    setViewingScreenshotUrl(null);
+    try {
+      const res = await api.get<{ data: string }>(`/payments/${paymentId}/screenshot`);
+      setViewingScreenshotUrl(res.data.data);
+    } catch {
+      toast({
+        title: 'Screenshot Unavailable',
+        description: 'Failed to retrieve screenshot or none was uploaded.',
+        variant: 'destructive',
+      });
+      setScreenshotOpen(false);
+    } finally {
+      setLoadingScreenshot(false);
+    }
+  };
+
+  // Delete Payment Mutation
+  const deletePaymentMutation = useMutation({
+    mutationFn: async (paymentId: string) => {
+      await api.delete(`/payments/${paymentId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Payment Deleted',
+        description: 'Payment record deleted and billing status reverted successfully.',
+        variant: 'success',
+      });
+      queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['monthly-chart'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-payments-feed'] });
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Delete Failed',
+        description: err.response?.data?.error || 'Failed to delete payment record.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleDeletePayment = (paymentId: string) => {
+    if (
+      confirm(
+        "Are you sure you want to delete this payment record? This will revert the student's billing status for this month."
+      )
+    ) {
+      deletePaymentMutation.mutate(paymentId);
+    }
+  };
 
   const handleReconcileManually = (row: any) => {
     manualForm.reset({
@@ -145,6 +206,9 @@ export default function PaymentsPage() {
     onSuccess: () => {
       toast({ title: 'Success', description: 'Manual payment recorded successfully', variant: 'success' });
       queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['monthly-chart'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-payments-feed'] });
       setManualOpen(false);
       manualForm.reset();
     },
@@ -174,6 +238,9 @@ export default function PaymentsPage() {
         variant: 'success',
       });
       queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['monthly-chart'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-payments-feed'] });
       if (data.unmatched > 0) {
         setImportSummary(data);
       } else {
@@ -194,9 +261,8 @@ export default function PaymentsPage() {
   const handleDownloadReceipt = async (paymentId: string) => {
     try {
       const res = await api.get<{ data: string }>(`/payments/${paymentId}/receipt`);
-      // Since receipt endpoint issues redirect or signed URL, let's open the redirect URL
-      if (typeof window !== 'undefined') {
-        window.open(`http://localhost:4000/api/v1/payments/${paymentId}/receipt?token=${accessToken}`, '_blank');
+      if (typeof window !== 'undefined' && res.data.data) {
+        window.open(res.data.data, '_blank');
       }
     } catch {
       toast({ title: 'Receipt Unavailable', description: 'Failed to build secure signed download link', variant: 'destructive' });
@@ -366,15 +432,39 @@ export default function PaymentsPage() {
                       </span>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDownloadReceipt(payment.id)}
-                    className="gap-1 font-bold text-primary hover:text-indigo-600 h-8 px-3.5 border text-xs"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    PDF Receipt
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    {(payment.screenshotUrl || (payment.remarks && payment.remarks.includes('screenshots/'))) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleViewScreenshot(payment.id)}
+                        className="gap-1 font-bold text-muted-foreground hover:text-foreground h-8 px-2.5 border text-xs"
+                        title="View Screenshot"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDownloadReceipt(payment.id)}
+                      className="gap-1 font-bold text-primary hover:text-indigo-600 h-8 px-3.5 border text-xs"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      PDF Receipt
+                    </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeletePayment(payment.id)}
+                        className="gap-1 font-bold text-destructive hover:text-red-600 hover:bg-destructive/10 h-8 px-2.5 border text-xs"
+                        title="Delete Payment"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </Card>
             ))
@@ -458,15 +548,39 @@ export default function PaymentsPage() {
                       )}
                     </td>
                     <td className="p-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDownloadReceipt(payment.id)}
-                        className="gap-1 font-bold text-primary hover:text-indigo-600"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        PDF
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        {(payment.screenshotUrl || (payment.remarks && payment.remarks.includes('screenshots/'))) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleViewScreenshot(payment.id)}
+                            className="gap-1 font-bold text-muted-foreground hover:text-foreground"
+                            title="View Screenshot"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDownloadReceipt(payment.id)}
+                          className="gap-1 font-bold text-primary hover:text-indigo-600"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          PDF
+                        </Button>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeletePayment(payment.id)}
+                            className="gap-1 font-bold text-destructive hover:text-red-600 hover:bg-destructive/10"
+                            title="Delete Payment"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -755,6 +869,46 @@ export default function PaymentsPage() {
                 </Button>
               </>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Screenshot Viewer Dialog */}
+      <Dialog open={screenshotOpen} onOpenChange={setScreenshotOpen}>
+        <DialogContent className="max-w-lg bg-card border border-slate-200 dark:border-slate-800">
+          <DialogHeader>
+            <DialogTitle>Payment Screenshot</DialogTitle>
+            <DialogDescription>
+              Uploaded by parent for verification
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-center p-4 border rounded-lg bg-slate-950 min-h-[300px]">
+            {loadingScreenshot ? (
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            ) : viewingScreenshotUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={viewingScreenshotUrl}
+                alt="Payment Screenshot"
+                className="max-h-[60vh] object-contain rounded-md"
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">No screenshot found for this payment.</p>
+            )}
+          </div>
+          <DialogFooter className="flex justify-between items-center sm:justify-between gap-2">
+            {viewingScreenshotUrl && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(viewingScreenshotUrl, '_blank')}
+                className="gap-1 font-bold"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open Original
+              </Button>
+            )}
+            <Button onClick={() => setScreenshotOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
