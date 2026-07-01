@@ -190,14 +190,14 @@ export default function WhatsAppPage() {
 
   const triggerMutation = useMutation({
     mutationFn: async () => {
-      const res = await api.post<{ data: { sent: number; failed: number } }>('/whatsapp/trigger-reminder', {
-        schoolName: triggerSchool,
+      const res = await api.post<{ data: { sentCount: number; failedCount: number } }>('/whatsapp/trigger-reminder', {
+        school: triggerSchool,
         reminderType: triggerReminderType,
       });
       return res.data.data;
     },
     onSuccess: (data) => {
-      toast({ title: 'Trigger Complete', description: `Sent: ${data?.sent ?? '?'}, Failed: ${data?.failed ?? 0}`, variant: 'success' as any });
+      toast({ title: 'Trigger Complete', description: `Sent: ${data?.sentCount ?? 0}, Failed: ${data?.failedCount ?? 0}`, variant: 'success' as any });
     },
     onError: (err: any) => {
       toast({ title: 'Trigger Failed', description: err.response?.data?.error || 'Failed', variant: 'destructive' });
@@ -464,9 +464,9 @@ export default function WhatsAppPage() {
                     <SelectValue placeholder="Select school…" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="DPS Phase 2">DPS Phase 2</SelectItem>
-                    <SelectItem value="Unicent">Unicent</SelectItem>
-                    <SelectItem value="DPS Brindavanam">DPS Brindavanam</SelectItem>
+                    <SelectItem value="DPS PHASE 2">DPS Phase 2</SelectItem>
+                    <SelectItem value="UNICENT">Unicent</SelectItem>
+                    <SelectItem value="DPS BRINDAVANAM">DPS Brindavanam</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

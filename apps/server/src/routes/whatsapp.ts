@@ -456,8 +456,12 @@ whatsappRouter.post(
 );
 
 const triggerReminderSchema = z.object({
-  school: z.string().min(1, 'School name is required'),
+  school: z.string().optional(),
+  schoolName: z.string().optional(),
   reminderType: z.nativeEnum(MessageType),
+}).refine(data => data.school || data.schoolName, {
+  message: "Either school or schoolName is required",
+  path: ["school"]
 });
 
 /**
@@ -466,10 +470,12 @@ const triggerReminderSchema = z.object({
  */
 whatsappRouter.post(
   '/trigger-reminder',
-  requireRole(UserRole.ADMIN),
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { school, reminderType } = triggerReminderSchema.parse(req.body);
+      const parsedBody = triggerReminderSchema.parse(req.body);
+      const school = (parsedBody.school || parsedBody.schoolName) as string;
+      const { reminderType } = parsedBody;
 
       const status = getWhatsAppStatus();
       if (!status.connected) {
@@ -507,6 +513,8 @@ whatsappRouter.post(
           scannedCount: students.length,
           sentCount: result.sent,
           failedCount: result.failed,
+          sent: result.sent,
+          failed: result.failed,
         },
       });
     } catch (error) {
