@@ -1,22 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 
-let supabaseClient: ReturnType<typeof createClient> | null = null;
+const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;  
+// Use SERVICE key (not anon key) for storage uploads
 
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: { persistSession: false },
+});
+
+// For backward compatibility:
 export function getSupabase() {
-  if (supabaseClient) return supabaseClient;
-
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
-
-  if (!url || !key) {
-    throw new Error('Supabase not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY.');
-  }
-
-  supabaseClient = createClient(url, key, {
-    auth: { persistSession: false },
-  });
-
-  return supabaseClient;
+  return supabase;
 }
 
 /**
@@ -28,8 +22,6 @@ export async function uploadToStorage(
   buffer: Buffer,
   contentType: string,
 ): Promise<string> {
-  const supabase = getSupabase();
-
   const { error } = await supabase.storage.from(bucket).upload(path, buffer, {
     contentType,
     upsert: true,
@@ -51,8 +43,6 @@ export async function getSignedUrl(
   path: string,
   expiresInSeconds = 3600,
 ): Promise<string> {
-  const supabase = getSupabase();
-
   const { data, error } = await supabase.storage
     .from(bucket)
     .createSignedUrl(path, expiresInSeconds);

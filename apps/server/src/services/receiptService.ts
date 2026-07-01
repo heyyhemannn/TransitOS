@@ -1,203 +1,267 @@
-import PDFDocument from 'pdfkit';
+import htmlPdf from 'html-pdf-node';
 import { prisma } from '../lib/prisma';
-import { logger } from '../lib/logger';
-import { uploadToStorage, getSupabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
+function numberToWords(num: number): string {
+  // Convert rupee amount to Indian English words
+  // e.g. 2500 → "Two Thousand Five Hundred Only"
+  const ones = ['','One','Two','Three','Four','Five','Six','Seven',
+    'Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen',
+    'Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const tens = ['','','Twenty','Thirty','Forty','Fifty',
+    'Sixty','Seventy','Eighty','Ninety'];
 
-/**
- * Generates a professional PDF receipt using PDFKit (pure Node.js, no Chromium),
- * uploads it to Supabase Storage, and updates the payment's receiptUrl in the database.
- */
-export async function generateReceipt(paymentId: string): Promise<string> {
-  try {
-    logger.info(`Generating receipt PDF for payment ID: ${paymentId}`);
+  function convertHundreds(n: number): string {
+    if (n === 0) return '';
+    if (n < 20) return ones[n] + ' ';
+    if (n < 100) return tens[Math.floor(n/10)] + ' ' + ones[n%10] + ' ';
+    return ones[Math.floor(n/100)] + ' Hundred ' + convertHundreds(n%100);
+  }
 
-    // 1. Fetch payment and related entities
-    const payment = await prisma.payment.findUnique({
-      where: { id: paymentId },
-      include: {
-        student: {
-          include: { route: true },
-        },
-      },
-    });
-
-    if (!payment) {
-      throw new Error(`Payment with ID ${paymentId} not found`);
+  function convert(n: number): string {
+    if (n === 0) return 'Zero';
+    let result = '';
+    if (n >= 100000) {
+      result += convertHundreds(Math.floor(n/100000)) + 'Lakh ';
+      n %= 100000;
     }
+    if (n >= 1000) {
+      result += convertHundreds(Math.floor(n/1000)) + 'Thousand ';
+      n %= 1000;
+    }
+    result += convertHundreds(n);
+    return result.trim();
+  }
 
-    const student = payment.student;
-    const routeName = student.route?.name ?? 'Not Assigned';
-    const vehicleNumber = student.route?.vehicleNumber ?? 'N/A';
+  return convert(num) + ' Only';
+}
 
-    // Load business settings
-    const settingsList = await prisma.settings.findMany();
-    const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
-    const businessName = settingsMap.get('businessName') || 'Sri Sai Travels';
+function buildReceiptHTML(data: {
+  receiptId: string;
+  studentName: string;
+  school: string;
+  class: string;
+  parentName: string;
+  amount: number;        // in paise
+  month: number;
+  year: number;
+  method: string;
+  transactionId: string | null;
+  paidAt: Date;
+  businessName: string;
+  upiId: string;
+}): string {
+  const rupees = data.amount / 100;
+  const monthName = new Date(data.year, data.month - 1)
+    .toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  const paidDate = new Date(data.paidAt).toLocaleDateString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric'
+  });
+  const amountWords = numberToWords(rupees);
 
-    // Format fields
-    const amountRupees = (payment.amount / 100).toFixed(2);
-    const billingMonth = `${MONTHS[payment.month - 1]} ${payment.year}`;
-    const paymentDate = payment.paidAt
-      ? new Date(payment.paidAt).toLocaleDateString('en-IN', {
-          timeZone: 'Asia/Kolkata',
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-        })
-      : 'N/A';
-    const transactionId = payment.transactionId ?? 'N/A';
-    const receiptNo = `PAY-${payment.year}-${String(payment.id).slice(-6).toUpperCase()}`;
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { 
+    font-family: 'Arial', sans-serif; 
+    background: #ffffff;
+    padding: 40px;
+    color: #1a1a1a;
+  }
+  .receipt {
+    max-width: 600px;
+    margin: 0 auto;
+    border: 2px solid #2563EB;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .header {
+    background: #2563EB;
+    color: white;
+    padding: 24px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .header .brand { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
+  .header .brand span { color: #93C5FD; }
+  .header .receipt-no { text-align: right; }
+  .header .receipt-no .label { font-size: 11px; opacity: 0.8; text-transform: uppercase; letter-spacing: 1px; }
+  .header .receipt-no .value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .paid-stamp {
+    background: #DCFCE7;
+    border-bottom: 2px solid #BBF7D0;
+    padding: 10px 32px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .paid-stamp .dot { width: 10px; height: 10px; background: #16A34A; border-radius: 50%; }
+  .paid-stamp .text { color: #15803D; font-weight: 700; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
+  .paid-stamp .date { color: #16A34A; font-size: 12px; margin-left: auto; }
+  .body { padding: 28px 32px; }
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #6B7280;
+    margin-bottom: 12px;
+    margin-top: 20px;
+  }
+  .section-title:first-child { margin-top: 0; }
+  .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F3F4F6; }
+  .row:last-child { border-bottom: none; }
+  .row .label { color: #6B7280; font-size: 13px; }
+  .row .value { font-size: 13px; font-weight: 600; color: #111827; text-align: right; max-width: 60%; }
+  .amount-box {
+    background: #EFF6FF;
+    border: 1px solid #BFDBFE;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 20px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .amount-box .label { color: #1D4ED8; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .amount-box .rupees { font-size: 28px; font-weight: 800; color: #1D4ED8; }
+  .amount-words {
+    font-size: 11px;
+    color: #6B7280;
+    font-style: italic;
+    margin-top: 4px;
+  }
+  .footer {
+    background: #F9FAFB;
+    border-top: 1px solid #E5E7EB;
+    padding: 16px 32px;
+    text-align: center;
+  }
+  .footer .thank-you { font-size: 14px; font-weight: 600; color: #374151; }
+  .footer .sub { font-size: 11px; color: #9CA3AF; margin-top: 4px; }
+  .footer .upi { font-size: 11px; color: #6B7280; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="receipt">
+  <div class="header">
+    <div class="brand">Transit<span>OS</span></div>
+    <div class="receipt-no">
+      <div class="label">Receipt No</div>
+      <div class="value">${data.receiptId}</div>
+    </div>
+  </div>
+  <div class="paid-stamp">
+    <div class="dot"></div>
+    <div class="text">Payment Confirmed</div>
+    <div class="date">${paidDate}</div>
+  </div>
+  <div class="body">
+    <div class="section-title">Student Details</div>
+    <div class="row"><span class="label">Student Name</span><span class="value">${data.studentName}</span></div>
+    <div class="row"><span class="label">School</span><span class="value">${data.school}</span></div>
+    <div class="row"><span class="label">Class</span><span class="value">${data.class}</span></div>
+    <div class="row"><span class="label">Parent Name</span><span class="value">${data.parentName}</span></div>
 
-    // 2. Build PDF with PDFKit
-    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
-      const doc = new PDFDocument({ size: 'A4', margin: 50 });
-      const chunks: Buffer[] = [];
+    <div class="section-title">Payment Details</div>
+    <div class="row"><span class="label">Fee Month</span><span class="value">${monthName}</span></div>
+    <div class="row"><span class="label">Payment Method</span><span class="value">${data.method}</span></div>
+    ${data.transactionId ? `<div class="row"><span class="label">Transaction ID</span><span class="value">${data.transactionId}</span></div>` : ''}
+    <div class="row"><span class="label">Payment Date</span><span class="value">${paidDate}</span></div>
 
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', reject);
+    <div class="amount-box">
+      <div>
+        <div class="label">Amount Paid</div>
+        <div class="amount-words">${amountWords}</div>
+      </div>
+      <div class="rupees">₹${rupees.toLocaleString('en-IN')}</div>
+    </div>
+  </div>
+  <div class="footer">
+    <div class="thank-you">Thank you for the prompt payment! 🙏</div>
+    <div class="sub">${data.businessName}</div>
+    <div class="upi">UPI: ${data.upiId}</div>
+  </div>
+</div>
+</body>
+</html>`;
+}
 
-      // ─── Colors & Fonts ────────────────────────────────────────────────
-      const DARK = '#0f172a';
-      const MID = '#334155';
-      const MUTED = '#64748b';
-      const ACCENT = '#2563eb';
-      const LINE = '#e2e8f0';
-      const BG_ROW = '#f8fafc';
+export class ReceiptService {
 
-      const pageWidth = doc.page.width - 100; // margins
+  async generateReceipt(paymentId: string): Promise<string | null> {
+    try {
+      const payment = await prisma.payment.findUnique({
+        where: { id: paymentId },
+        include: { student: true },
+      });
+      if (!payment) throw new Error(`Payment ${paymentId} not found`);
 
-      // ─── Header ────────────────────────────────────────────────────────
-      doc.rect(50, 50, pageWidth, 80).fill('#f1f5f9');
-      doc.fillColor(DARK).fontSize(20).font('Helvetica-Bold')
-        .text(businessName, 60, 65, { width: pageWidth / 2 });
-      doc.fillColor(MUTED).fontSize(9).font('Helvetica')
-        .text('SCHOOL TRANSPORT SERVICES', 60, 90);
+      const settings = await prisma.settings.findMany();
+      const getSetting = (key: string) => 
+        settings.find(s => s.key === key)?.value ?? '';
 
-      doc.fillColor(ACCENT).fontSize(22).font('Helvetica-Bold')
-        .text('RECEIPT', 60 + pageWidth / 2, 62, { align: 'right', width: pageWidth / 2 - 10 });
-      doc.fillColor(MUTED).fontSize(10).font('Helvetica')
-        .text(receiptNo, 60 + pageWidth / 2, 90, { align: 'right', width: pageWidth / 2 - 10 });
+      const receiptId = `PAY-${payment.year}-${paymentId.slice(-6).toUpperCase()}`;
 
-      // ─── Divider ───────────────────────────────────────────────────────
-      doc.moveDown(4);
-      doc.moveTo(50, 145).lineTo(50 + pageWidth, 145).strokeColor(LINE).lineWidth(1).stroke();
+      const html = buildReceiptHTML({
+        receiptId,
+        studentName: payment.student.name,
+        school: payment.student.school,
+        class: payment.student.class,
+        parentName: payment.student.parentName,
+        amount: payment.amount,
+        month: payment.month,
+        year: payment.year,
+        method: payment.method,
+        transactionId: payment.transactionId,
+        paidAt: payment.paidAt ?? new Date(),
+        businessName: getSetting('businessName') || "Hemanth's Transport Services",
+        upiId: getSetting('upiId') || '',
+      });
 
-      // ─── Billing Details ───────────────────────────────────────────────
-      const leftCol = 50;
-      const rightCol = 50 + pageWidth / 2 + 10;
-      let y = 160;
+      // Generate PDF buffer
+      const file = { content: html };
+      const options = { format: 'A5', printBackground: true };
+      const pdfBuffer = await htmlPdf.generatePdf(file, options);
 
-      // Left column
-      doc.fillColor(MUTED).fontSize(8).font('Helvetica-Bold')
-        .text('BILLED TO (PARENT)', leftCol, y);
-      doc.fillColor(DARK).fontSize(12).font('Helvetica-Bold')
-        .text(student.parentName, leftCol, y + 14);
-      doc.fillColor(MID).fontSize(10).font('Helvetica')
-        .text(`Mobile: ${student.fatherMobile}`, leftCol, y + 30);
-      doc.text(`Student: ${student.name}`, leftCol, y + 45);
-      doc.text(`School: ${student.school} – ${student.class}`, leftCol, y + 60);
-
-      // Right column
-      doc.fillColor(MUTED).fontSize(8).font('Helvetica-Bold')
-        .text('TRANSACTION DETAILS', rightCol, y);
-      doc.fillColor(DARK).fontSize(12).font('Helvetica-Bold')
-        .text(`Date: ${paymentDate}`, rightCol, y + 14);
-      doc.fillColor(MID).fontSize(10).font('Helvetica')
-        .text(`Billing Period: ${billingMonth}`, rightCol, y + 30);
-      doc.text(`Method: ${payment.method}`, rightCol, y + 45);
-      doc.text(`Ref: ${transactionId}`, rightCol, y + 60);
-
-      // ─── Table ─────────────────────────────────────────────────────────
-      y += 100;
-      doc.moveTo(50, y).lineTo(50 + pageWidth, y).strokeColor(LINE).lineWidth(1).stroke();
-      y += 8;
-
-      // Table header
-      doc.rect(50, y, pageWidth, 24).fill(BG_ROW);
-      doc.fillColor(MUTED).fontSize(8).font('Helvetica-Bold');
-      doc.text('STUDENT & SCHOOL', 60, y + 8);
-      doc.text('ROUTE DETAILS', 240, y + 8);
-      doc.text('AMOUNT PAID', 400, y + 8, { width: 100, align: 'right' });
-      y += 28;
-
-      // Table row
-      doc.moveTo(50, y).lineTo(50 + pageWidth, y).strokeColor(LINE).lineWidth(0.5).stroke();
-      y += 8;
-      doc.fillColor(DARK).fontSize(11).font('Helvetica-Bold')
-        .text(student.name, 60, y);
-      doc.fillColor(MUTED).fontSize(9).font('Helvetica')
-        .text(`${student.school} – ${student.class}`, 60, y + 16);
-
-      doc.fillColor(DARK).fontSize(11).font('Helvetica-Bold')
-        .text(routeName, 240, y);
-      doc.fillColor(MUTED).fontSize(9).font('Helvetica')
-        .text(`Bus: ${vehicleNumber}`, 240, y + 16);
-
-      doc.fillColor(DARK).fontSize(13).font('Helvetica-Bold')
-        .text(`Rs. ${amountRupees}`, 400, y, { width: 100, align: 'right' });
-
-      y += 40;
-      doc.moveTo(50, y).lineTo(50 + pageWidth, y).strokeColor(LINE).lineWidth(1).stroke();
-
-      // ─── Summary ───────────────────────────────────────────────────────
-      y += 20;
-      const summaryX = 50 + pageWidth - 230;
-      doc.fillColor(MUTED).fontSize(10).font('Helvetica')
-        .text('Payment Method:', summaryX, y)
-        .text(payment.method, summaryX + 130, y, { width: 100, align: 'right' });
-      y += 18;
-      doc.text('Transaction Ref:', summaryX, y)
-        .text(transactionId, summaryX + 130, y, { width: 100, align: 'right' });
-      y += 14;
-      doc.moveTo(summaryX, y).lineTo(summaryX + 230, y).strokeColor(LINE).lineWidth(1).stroke();
-      y += 10;
-      doc.fillColor(DARK).fontSize(15).font('Helvetica-Bold')
-        .text('Total Paid:', summaryX, y)
-        .text(`Rs. ${amountRupees}`, summaryX + 130, y, { width: 100, align: 'right' });
-
-      // ─── Footer ────────────────────────────────────────────────────────
-      const footerY = doc.page.height - 90;
-      doc.moveTo(50, footerY).lineTo(50 + pageWidth, footerY).strokeColor(LINE).lineWidth(1).stroke();
-      doc.fillColor(MID).fontSize(10).font('Helvetica-Bold')
-        .text('Thank you for your trust!', 50, footerY + 15, { align: 'center', width: pageWidth });
-      doc.fillColor(MUTED).fontSize(9).font('Helvetica')
-        .text('This is an electronically generated payment document. No signature required.', 50, footerY + 32, {
-          align: 'center',
-          width: pageWidth,
+      // Upload to Supabase Storage
+      const fileName = `receipts/${payment.student.id}/${receiptId}.pdf`;
+      const { error } = await supabase.storage
+        .from('receipts')
+        .upload(fileName, pdfBuffer, {
+          contentType: 'application/pdf',
+          upsert: true,
         });
 
-      doc.end();
-    });
+      if (error) throw new Error(`Supabase upload failed: ${error.message}`);
 
-    // 3. Ensure Supabase Bucket exists
-    const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
-    const supabase = getSupabase();
-    try {
-      await supabase.storage.createBucket(bucket, { public: false });
-    } catch {
-      // Ignored: bucket already exists
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('receipts')
+        .getPublicUrl(fileName);
+
+      const receiptUrl = urlData.publicUrl;
+
+      // Save URL back to payment record
+      await prisma.payment.update({
+        where: { id: paymentId },
+        data: { receiptUrl },
+      });
+
+      console.log(`[Receipt] Generated: ${receiptId} → ${receiptUrl}`);
+      return receiptUrl;
+
+    } catch (error) {
+      console.error('[Receipt] Generation failed:', error);
+      return null;
     }
-
-    // 4. Upload PDF file
-    const filePath = `receipts/${payment.studentId}/${payment.id}.pdf`;
-    await uploadToStorage(bucket, filePath, pdfBuffer, 'application/pdf');
-
-    // 5. Save receiptUrl path in database
-    await prisma.payment.update({
-      where: { id: paymentId },
-      data: { receiptUrl: filePath },
-    });
-
-    logger.info(`Receipt PDF successfully generated and uploaded for payment ${paymentId}`);
-    return filePath;
-  } catch (error) {
-    logger.error(`Failed to generate receipt PDF for payment ${paymentId}:`, error);
-    throw error;
   }
+}
+
+export const receiptService = new ReceiptService();
+export async function generateReceipt(paymentId: string): Promise<string | null> {
+  return receiptService.generateReceipt(paymentId);
 }
