@@ -257,6 +257,31 @@ export default function PaymentsPage() {
     },
   });
 
+  // 6. Update Status Mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ paymentId, status }: { paymentId: string; status: string }) => {
+      await api.patch(`/payments/${paymentId}/status`, { status });
+    },
+    onSuccess: (_, variables) => {
+      toast({
+        title: 'Status Updated',
+        description: `Payment status manually changed to ${variables.status}. Confirmation dispatched.`,
+        variant: 'success',
+      });
+      queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['monthly-chart'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-payments-feed'] });
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Update Failed',
+        description: err.response?.data?.error || 'Failed to update payment status.',
+        variant: 'destructive',
+      });
+    },
+  });
+
   // 5. Open signed URL in new tab helper
   const handleDownloadReceipt = async (paymentId: string) => {
     try {
@@ -418,18 +443,51 @@ export default function PaymentsPage() {
 
                 <div className="mt-3 flex items-center justify-between">
                   <div>
-                    {payment.status === 'PAID' ? (
-                      <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
-                        MATCHED
-                      </span>
-                    ) : payment.status === 'UNMATCHED' ? (
-                      <span className="text-xs font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
-                        UNMATCHED
-                      </span>
+                    {canMutate ? (
+                      <Select
+                        disabled={updateStatusMutation.isPending}
+                        value={payment.status}
+                        onValueChange={(val: string) => {
+                          if (confirm(`Are you sure you want to change the payment status to ${val}?`)) {
+                            updateStatusMutation.mutate({ paymentId: payment.id, status: val });
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-7 w-[110px] bg-transparent border-none p-0 focus:ring-0 text-left">
+                          {payment.status === 'PAID' ? (
+                            <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                              MATCHED
+                            </span>
+                          ) : payment.status === 'PENDING' ? (
+                            <span className="text-xs font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                              PENDING
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-red-500 bg-red-500/10 border border-red-500/20 px-2.5 py-0.5 rounded-full">
+                              OVERDUE
+                            </span>
+                          )}
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="PAID">MATCHED</SelectItem>
+                          <SelectItem value="PENDING">PENDING</SelectItem>
+                          <SelectItem value="OVERDUE">OVERDUE</SelectItem>
+                        </SelectContent>
+                      </Select>
                     ) : (
-                      <span className="text-xs font-bold text-red-500 bg-red-500/10 border border-red-500/20 px-2.5 py-0.5 rounded-full">
-                        FAILED
-                      </span>
+                      payment.status === 'PAID' ? (
+                        <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                          MATCHED
+                        </span>
+                      ) : payment.status === 'PENDING' ? (
+                        <span className="text-xs font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                          PENDING
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-red-500 bg-red-500/10 border border-red-500/20 px-2.5 py-0.5 rounded-full">
+                          OVERDUE
+                        </span>
+                      )
                     )}
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -530,21 +588,57 @@ export default function PaymentsPage() {
                       </Badge>
                     </td>
                     <td className="p-4">
-                      {payment.status === 'PAID' ? (
-                        <div className="flex items-center gap-1 text-success">
-                          <CheckCircle2 className="h-4 w-4" />
-                          <span className="text-xs font-bold">MATCHED</span>
-                        </div>
-                      ) : payment.status === 'UNMATCHED' ? (
-                        <div className="flex items-center gap-1 text-warning">
-                          <Clock className="h-4 w-4" />
-                          <span className="text-xs font-bold">UNMATCHED</span>
-                        </div>
+                      {canMutate ? (
+                        <Select
+                          disabled={updateStatusMutation.isPending}
+                          value={payment.status}
+                          onValueChange={(val: string) => {
+                            if (confirm(`Are you sure you want to change the payment status to ${val}?`)) {
+                              updateStatusMutation.mutate({ paymentId: payment.id, status: val });
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-8 w-[130px] bg-transparent border-none p-0 focus:ring-0 text-left">
+                            {payment.status === 'PAID' ? (
+                              <div className="flex items-center gap-1 text-success font-bold text-xs">
+                                <CheckCircle2 className="h-4 w-4" />
+                                <span>MATCHED</span>
+                              </div>
+                            ) : payment.status === 'PENDING' ? (
+                              <div className="flex items-center gap-1 text-warning font-bold text-xs">
+                                <Clock className="h-4 w-4" />
+                                <span>PENDING</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1 text-destructive font-bold text-xs">
+                                <AlertCircle className="h-4 w-4" />
+                                <span>OVERDUE</span>
+                              </div>
+                            )}
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="PAID">MATCHED (Paid)</SelectItem>
+                            <SelectItem value="PENDING">PENDING</SelectItem>
+                            <SelectItem value="OVERDUE">OVERDUE</SelectItem>
+                          </SelectContent>
+                        </Select>
                       ) : (
-                        <div className="flex items-center gap-1 text-destructive">
-                          <AlertCircle className="h-4 w-4" />
-                          <span className="text-xs font-bold">FAILED</span>
-                        </div>
+                        payment.status === 'PAID' ? (
+                          <div className="flex items-center gap-1 text-success">
+                            <CheckCircle2 className="h-4 w-4" />
+                            <span className="text-xs font-bold">MATCHED</span>
+                          </div>
+                        ) : payment.status === 'PENDING' ? (
+                          <div className="flex items-center gap-1 text-warning">
+                            <Clock className="h-4 w-4" />
+                            <span className="text-xs font-bold">PENDING</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-destructive">
+                            <AlertCircle className="h-4 w-4" />
+                            <span className="text-xs font-bold">OVERDUE</span>
+                          </div>
+                        )
                       )}
                     </td>
                     <td className="p-4 text-right">

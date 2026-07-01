@@ -391,23 +391,32 @@ paymentsRouter.get(
         return;
       }
 
-      if (!payment.receiptUrl) {
+      let receiptUrl = payment.receiptUrl;
+      if (!receiptUrl) {
+        try {
+          receiptUrl = await generateReceipt(id);
+        } catch (err) {
+          logger.error(`Failed to generate receipt on-demand for payment ${id}:`, err);
+        }
+      }
+
+      if (!receiptUrl) {
         res.status(404).json({ success: false, error: 'Receipt not generated yet' });
         return;
       }
 
       // If it's already a full HTTP URL (e.g. from CDN/mock), return it directly
-      if (payment.receiptUrl.startsWith('http://') || payment.receiptUrl.startsWith('https://')) {
+      if (receiptUrl.startsWith('http://') || receiptUrl.startsWith('https://')) {
         res.json({
           success: true,
-          data: payment.receiptUrl,
+          data: receiptUrl,
         });
         return;
       }
 
       // Generate a signed URL for private Supabase Storage paths
       const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
-      const signedUrl = await getSignedUrl(bucket, payment.receiptUrl, 3600); // 1 hour expiry
+      const signedUrl = await getSignedUrl(bucket, receiptUrl, 3600); // 1 hour expiry
 
       res.json({
         success: true,
@@ -418,6 +427,119 @@ paymentsRouter.get(
     }
   },
 );
+
+/**
+ * PATCH /api/v1/payments/:id/status
+ * Update status of a payment (ADMIN and MANAGER only)
+ */
+paymentsRouter.patch(
+  '/:id/status',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const { status } = z.object({
+        status: z.nativeEnum(PaymentStatus),
+      }).parse(req.body);
+
+      const payment = await prisma.payment.findUnique({
+        where: { id },
+        include: { student: true },
+      });
+
+      if (!payment) {
+        res.status(404).json({ success: false, error: 'Payment not found' });
+        return;
+      }
+
+      const oldStatus = payment.status;
+      const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+
+      const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // Update payment status
+        const pay = await tx.payment.update({
+          where: { id },
+          data: { 
+            status,
+            paidAt: status === PaymentStatus.PAID ? nowIST : payment.paidAt,
+          },
+        });
+
+        // Update corresponding fee schedule
+        if (status === PaymentStatus.PAID) {
+          await tx.feeSchedule.upsert({
+            where: {
+              studentId_month_year: {
+                studentId: payment.studentId,
+                month: payment.month,
+                year: payment.year,
+              },
+            },
+            update: {
+              isPaid: true,
+              paidAt: nowIST,
+            },
+            create: {
+              studentId: payment.studentId,
+              month: payment.month,
+              year: payment.year,
+              dueDate: new Date(Date.UTC(payment.year, payment.month - 1, 10, 4, 30, 0)),
+              amount: payment.amount,
+              isPaid: true,
+              paidAt: nowIST,
+            },
+          });
+        } else {
+          // Revert to unpaid if changing status from PAID to something else
+          if (oldStatus === PaymentStatus.PAID) {
+            await tx.feeSchedule.updateMany({
+              where: {
+                studentId: payment.studentId,
+                month: payment.month,
+                year: payment.year,
+              },
+              data: {
+                isPaid: false,
+                paidAt: null,
+              },
+            });
+          }
+        }
+
+        return pay;
+      });
+
+      // Write Audit Log
+      await createAuditLog(req.user?.id || null, 'UPDATE_PAYMENT_STATUS', 'Payment', id, {
+        studentId: payment.studentId,
+        oldStatus,
+        newStatus: status,
+      });
+
+      // If status changed to PAID (success), trigger side effects: receipt generation and WhatsApp confirmation dispatch
+      if (status === PaymentStatus.PAID) {
+        // Run receipt generation first so it updates payment.receiptUrl
+        generateReceipt(id)
+          .then(() => {
+            sendConfirmation(payment.studentId, id).catch((err) => {
+              logger.error(`WhatsApp confirmation failed after status change for studentId ${payment.studentId}:`, err);
+            });
+          })
+          .catch((err) => {
+            logger.error(`Receipt generation failed after status change for paymentId ${id}:`, err);
+          });
+      }
+
+      res.json({
+        success: true,
+        data: updated,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 
 /**
  * GET /api/v1/payments/:id/screenshot
@@ -663,9 +785,15 @@ publicPaymentsRouter.post(
       logger.info(`Parent submit (Auto-Confirmed): Student=${student.name}, TxID=${transactionId}, Screenshot=${screenshotStoragePath ? 'YES' : 'NO'}`);
 
       // Trigger non-blocking async receipt generation & WhatsApp confirmation (including PDF receipt document)
-      sendConfirmation(student.id, result.id).catch((err) => {
-        logger.error(`WhatsApp confirmation failed in parent-confirm for studentId ${student.id}:`, err);
-      });
+      generateReceipt(result.id)
+        .then(() => {
+          sendConfirmation(student.id, result.id).catch((err) => {
+            logger.error(`WhatsApp confirmation failed in parent-confirm for studentId ${student.id}:`, err);
+          });
+        })
+        .catch((err) => {
+          logger.error(`Receipt generation failed in parent-confirm for paymentId ${result.id}:`, err);
+        });
 
       res.json({
         success: true,

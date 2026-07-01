@@ -114,8 +114,8 @@ export default function ParentConfirmPage() {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-400">Status:</span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                PENDING REVIEW
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                SUCCESS / PAID
               </span>
             </div>
           </div>

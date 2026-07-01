@@ -210,8 +210,12 @@ async function bootstrap() {
 
     // Initialize cron scheduler
     if (process.env.NODE_ENV !== 'test') {
-      initScheduler();
-      logger.info('⏰ Scheduler initialized');
+      try {
+        initScheduler();
+        logger.info('⏰ Scheduler initialized');
+      } catch (err) {
+        logger.error('❌ Failed to initialize scheduler:', err);
+      }
     }
   } catch (error) {
     logger.error('❌ Failed to start server:', error);
