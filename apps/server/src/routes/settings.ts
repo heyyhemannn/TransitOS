@@ -96,3 +96,60 @@ settingsRouter.post(
     }
   },
 );
+
+const schoolScheduleSchema = z.object({
+  schoolName: z.string().min(1, 'School name is required'),
+  reminder1Day: z.number().int().min(1).max(28),
+  reminder2Day: z.number().int().min(1).max(28),
+  reminder3Day: z.number().int().min(1).max(28),
+});
+
+/**
+ * GET /api/v1/settings/school-schedules
+ * Retrieve all configured school schedules
+ */
+settingsRouter.get(
+  '/school-schedules',
+  requireRole(UserRole.ADMIN),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const schedules = await prisma.schoolReminderSchedule.findMany({
+        orderBy: { schoolName: 'asc' },
+      });
+      res.json({
+        success: true,
+        data: schedules,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/settings/school-schedules
+ * Upsert reminder schedule for a school
+ */
+settingsRouter.post(
+  '/school-schedules',
+  requireRole(UserRole.ADMIN),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { schoolName, reminder1Day, reminder2Day, reminder3Day } = schoolScheduleSchema.parse(req.body);
+
+      const schedule = await prisma.schoolReminderSchedule.upsert({
+        where: { schoolName },
+        update: { reminder1Day, reminder2Day, reminder3Day },
+        create: { schoolName, reminder1Day, reminder2Day, reminder3Day },
+      });
+
+      res.json({
+        success: true,
+        data: schedule,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+

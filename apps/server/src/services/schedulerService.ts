@@ -1,326 +1,264 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
-import { logger } from '../lib/logger';
-import { sendWhatsAppMessage, formatTemplate, TEMPLATES } from './whatsappService';
-import { autoCreateFeeSchedule } from '../routes/students';
-import { StudentStatus, MessageType, PaymentStatus } from '@prisma/client';
+import { whatsappService } from './whatsappService';
+import { MessageType } from '@prisma/client';
 
-/**
- * Daily fee checks run every day at 10:00 AM IST.
- * Dispatches WhatsApp fee alerts for 1st, 11th, 16th, and 21st milestones.
- */
-async function runDailyFeeChecks(): Promise<void> {
-  try {
-    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const currentDay = nowIST.getDate();
-    const currentMonth = nowIST.getMonth() + 1;
-    const currentYear = nowIST.getFullYear();
+// Helper: get all unpaid active students for current month, optionally 
+// filtered by school name(s)
+export async function getUnpaidStudents(schools?: string[]) {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
 
-    logger.info(`Running daily fee checks milestone check for Day ${currentDay}...`);
+  return prisma.student.findMany({
+    where: {
+      status: 'ACTIVE',
+      ...(schools ? { school: { in: schools } } : {}),
+      feeSchedules: {
+        some: {
+          month,
+          year,
+          isPaid: false,
+        },
+      },
+    },
+    select: { id: true, name: true, school: true, parentName: true, whatsappNumber: true },
+  });
+}
 
-    // Only process milestones on the 1st, 3rd, 5th, 9, 10th, and 15th
-    if (![1, 3, 5, 9, 10, 15].includes(currentDay)) {
-      logger.info(`Day ${currentDay} is not a fee alert milestone. Skipping.`);
-      return;
+// Helper: log job execution
+function logJob(name: string, status: 'START' | 'END' | 'ERROR', detail?: string) {
+  const ts = new Date().toISOString();
+  console.log(`[Scheduler][${ts}] ${name} — ${status}${detail ? ': ' + detail : ''}`);
+}
+
+export function initScheduler() {
+
+  // ── 1st of every month, 9:00 AM ─────────────────────────────
+  // Reminder 1 for ALL schools
+  cron.schedule('0 9 1 * *', async () => {
+    logJob('REMINDER_1_ALL', 'START');
+    try {
+      const students = await getUnpaidStudents();
+      logJob('REMINDER_1_ALL', 'START', `${students.length} unpaid students`);
+      const result = await whatsappService.broadcastToList(
+        students.map(s => s.id),
+        MessageType.REMINDER_1
+      );
+      logJob('REMINDER_1_ALL', 'END', `sent: ${result.sent}, failed: ${result.failed}`);
+    } catch (e) {
+      logJob('REMINDER_1_ALL', 'ERROR', String(e));
     }
+  }, { timezone: 'Asia/Kolkata' });
 
-    // Load settings
-    const settingsList = await prisma.settings.findMany();
-    const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
-    const businessName = settingsMap.get('businessName') || 'Sri Sai Travels';
-    const upiId = settingsMap.get('upiId') || 'yourupi@upi';
-    const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'http://localhost:3000';
 
-    const monthsNames = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    const monthName = monthsNames[currentMonth - 1];
+  // ── 6th of every month, 9:00 AM ─────────────────────────────
+  // Reminder 2 for DPS Phase 2 only
+  cron.schedule('0 9 6 * *', async () => {
+    logJob('REMINDER_2_DPS_PHASE2', 'START');
+    try {
+      const students = await getUnpaidStudents(['DPS Phase 2']);
+      const result = await whatsappService.broadcastToList(
+        students.map(s => s.id),
+        MessageType.REMINDER_2
+      );
+      logJob('REMINDER_2_DPS_PHASE2', 'END', `sent: ${result.sent}, failed: ${result.failed}`);
+    } catch (e) {
+      logJob('REMINDER_2_DPS_PHASE2', 'ERROR', String(e));
+    }
+  }, { timezone: 'Asia/Kolkata' });
 
-    // Fetch all active students
-    const activeStudents = await prisma.student.findMany({
-      where: { status: StudentStatus.ACTIVE },
-    });
 
-    logger.info(`Found ${activeStudents.length} active students to evaluate for alerts.`);
+  // ── 7th of every month, 9:00 AM ─────────────────────────────
+  // Reminder 2 for Unicent and DPS Brindavanam
+  cron.schedule('0 9 7 * *', async () => {
+    logJob('REMINDER_2_UNICENT_BRINDAVANAM', 'START');
+    try {
+      const students = await getUnpaidStudents(['Unicent', 'DPS Brindavanam']);
+      const result = await whatsappService.broadcastToList(
+        students.map(s => s.id),
+        MessageType.REMINDER_2
+      );
+      logJob('REMINDER_2_UNICENT_BRINDAVANAM', 'END', `sent: ${result.sent}, failed: ${result.failed}`);
+    } catch (e) {
+      logJob('REMINDER_2_UNICENT_BRINDAVANAM', 'ERROR', String(e));
+    }
+  }, { timezone: 'Asia/Kolkata' });
 
-    for (const student of activeStudents) {
-      const school = student.school.toUpperCase().trim();
-      let isMilestoneDay = false;
-      let isFirstMessageDay = false;
-      let alertType: MessageType | null = null;
 
-      // School-specific rules
-      if (school === 'DPS PHASE 2') {
-        if (currentDay === 1) {
-          isMilestoneDay = true;
-          isFirstMessageDay = true;
-          alertType = MessageType.REMINDER_1;
-        } else if (currentDay === 5) {
-          isMilestoneDay = true;
-          alertType = MessageType.REMINDER_2;
-        } else if (currentDay === 10) {
-          isMilestoneDay = true;
-          alertType = MessageType.REMINDER_3;
-        }
-      } else if (school === 'UNICENT' || school === 'DPS BRINDAVANAM') {
-        if (currentDay === 3) {
-          isMilestoneDay = true;
-          isFirstMessageDay = true;
-          alertType = MessageType.REMINDER_1;
-        } else if (currentDay === 9) {
-          isMilestoneDay = true;
-          alertType = MessageType.REMINDER_2;
-        } else if (currentDay === 15) {
-          isMilestoneDay = true;
-          alertType = MessageType.REMINDER_3;
-        }
-      }
+  // ── 10th of every month, 9:00 AM ────────────────────────────
+  // Reminder 3 / Final for DPS Phase 2 only
+  cron.schedule('0 9 10 * *', async () => {
+    logJob('REMINDER_3_DPS_PHASE2', 'START');
+    try {
+      const students = await getUnpaidStudents(['DPS Phase 2']);
 
-      // Skip if this is not a billing reminder milestone day for this student's school
-      if (!isMilestoneDay || !alertType) {
-        continue;
-      }
-
-      // 1. Autocreate current/next month schedule if missing (specifically useful on the first message day)
-      if (isFirstMessageDay) {
-        await autoCreateFeeSchedule(student.id, student.monthlyFee);
-      }
-
-      // 2. Load the schedule for this month
-      const schedule = await prisma.feeSchedule.findUnique({
+      // Mark overdue in DB
+      const now = new Date();
+      await prisma.feeSchedule.updateMany({
         where: {
-          studentId_month_year: {
-            studentId: student.id,
-            month: currentMonth,
-            year: currentYear,
-          },
+          month: now.getMonth() + 1,
+          year: now.getFullYear(),
+          isPaid: false,
+          student: { school: { in: ['DPS Phase 2'] } },
+        },
+        data: { overdueAt: now },
+      });
+
+      const result = await whatsappService.broadcastToList(
+        students.map(s => s.id),
+        MessageType.FINAL
+      );
+      logJob('REMINDER_3_DPS_PHASE2', 'END', `sent: ${result.sent}, failed: ${result.failed}`);
+    } catch (e) {
+      logJob('REMINDER_3_DPS_PHASE2', 'ERROR', String(e));
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+
+  // ── 15th of every month, 9:00 AM ────────────────────────────
+  // Reminder 3 / Final for Unicent and DPS Brindavanam
+  cron.schedule('0 9 15 * *', async () => {
+    logJob('REMINDER_3_UNICENT_BRINDAVANAM', 'START');
+    try {
+      const students = await getUnpaidStudents(['Unicent', 'DPS Brindavanam']);
+
+      const now = new Date();
+      await prisma.feeSchedule.updateMany({
+        where: {
+          month: now.getMonth() + 1,
+          year: now.getFullYear(),
+          isPaid: false,
+          student: { school: { in: ['Unicent', 'DPS Brindavanam'] } },
+        },
+        data: { overdueAt: now },
+      });
+
+      const result = await whatsappService.broadcastToList(
+        students.map(s => s.id),
+        MessageType.FINAL
+      );
+      logJob('REMINDER_3_UNICENT_BRINDAVANAM', 'END', `sent: ${result.sent}, failed: ${result.failed}`);
+    } catch (e) {
+      logJob('REMINDER_3_UNICENT_BRINDAVANAM', 'ERROR', String(e));
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+
+  // ── Every 15 minutes ────────────────────────────────────────
+  // Poll Android SMS gateway for UPI credit SMS
+  cron.schedule('*/15 * * * *', async () => {
+    const gatewayUrl = process.env.ANDROID_GATEWAY_URL;
+    if (!gatewayUrl) return;
+    try {
+      const res = await fetch(`${gatewayUrl}/messages?from=last15min`);
+      const data = (await res.json()) as { body: string }[];
+      for (const sms of data) {
+        const { parseSMSText, matchPayment } = await import('./paymentEngine');
+        const parsed = parseSMSText(sms.body);
+        if (parsed) {
+          await matchPayment(
+            parsed.transactionId,
+            parsed.amount,
+            parsed.senderName
+          );
+        }
+      }
+    } catch (e) {
+      // silent — gateway may not be running
+    }
+  });
+
+
+  // ── Every day at 11:00 PM ────────────────────────────────────
+  // Daily collection report
+  cron.schedule('0 23 * * *', async () => {
+    logJob('DAILY_REPORT', 'START');
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+
+      const payments = await prisma.payment.findMany({
+        where: {
+          status: 'PAID',
+          paidAt: { gte: today, lt: tomorrow },
         },
       });
 
-      // 3. Skip if already paid
-      if (schedule?.isPaid) {
-        continue;
-      }
+      const totalCollected = payments.reduce((sum, p) => sum + p.amount, 0);
 
-      // 4. Update overdue timestamp on final warning milestone
-      if (alertType === MessageType.REMINDER_3 && schedule) {
-        await prisma.feeSchedule.update({
-          where: { id: schedule.id },
-          data: { overdueAt: nowIST },
-        });
-      }
-
-      // 5. Dispatch message
-      const amountRupees = (student.monthlyFee / 100).toFixed(0);
-      const body = formatTemplate(TEMPLATES[alertType], {
-        parentName: student.parentName,
-        amount: amountRupees,
-        month: `${monthName} ${currentYear}`,
-        upiId,
-        businessName,
-        webAppUrl,
+      const pendingCount = await prisma.feeSchedule.count({
+        where: {
+          month: today.getMonth() + 1,
+          year: today.getFullYear(),
+          isPaid: false,
+        },
       });
 
-      // Fire and forget send message with short delay spacing
-      sendWhatsAppMessage(student.whatsappNumber, body, student.id, alertType).catch((err) => {
-        logger.error(`Failed to send auto reminder ${alertType} to student ${student.id}:`, err);
+      await prisma.dailyReport.upsert({
+        where: { date: today },
+        update: { totalCollected, paymentCount: payments.length, pendingCount },
+        create: { date: today, totalCollected, paymentCount: payments.length, pendingCount },
       });
+
+      logJob('DAILY_REPORT', 'END', `collected: ₹${totalCollected/100}, payments: ${payments.length}`);
+    } catch (e) {
+      logJob('DAILY_REPORT', 'ERROR', String(e));
     }
+  }, { timezone: 'Asia/Kolkata' });
 
-    logger.info('Daily fee checks milestone completed successfully.');
-  } catch (error) {
-    logger.error('Error occurred during daily fee checks job:', error);
-  }
-}
 
-/**
- * Daily reports summary aggregator runs every day at 11:59 PM IST.
- * Tallies collections, payment transaction count, and active pending student defaults.
- */
-async function generateDailyReport(): Promise<void> {
-  try {
-    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const currentMonth = nowIST.getMonth() + 1;
-    const currentYear = nowIST.getFullYear();
+  // ── 1st of every month at 8:00 AM ───────────────────────────
+  // Monthly summary to admin WhatsApp
+  cron.schedule('0 8 1 * *', async () => {
+    logJob('MONTHLY_REPORT', 'START');
+    try {
+      const now = new Date();
+      // Previous month
+      const month = now.getMonth() === 0 ? 12 : now.getMonth();
+      const year = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
 
-    logger.info('Generating Daily Report summary...');
+      const [paid, pending, total] = await Promise.all([
+        prisma.payment.count({ where: { month, year, status: 'PAID' } }),
+        prisma.feeSchedule.count({ where: { month, year, isPaid: false } }),
+        prisma.payment.aggregate({
+          where: { month, year, status: 'PAID' },
+          _sum: { amount: true },
+        }),
+      ]);
 
-    // Define IST start and end times in local execution context
-    const startOfToday = new Date(nowIST);
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date(nowIST);
-    endOfToday.setHours(23, 59, 59, 999);
+      const monthName = new Date(year, month - 1).toLocaleString('en-IN', {
+        month: 'long', year: 'numeric'
+      });
 
-    // Date identifier stored at midnight UTC for unified indexing
-    const reportDate = new Date(Date.UTC(nowIST.getFullYear(), nowIST.getMonth(), nowIST.getDate(), 0, 0, 0));
+      const totalAmt = (total._sum.amount ?? 0) / 100;
 
-    // Fetch payments credited today
-    const [paymentsToday, pendingCount] = await Promise.all([
-      prisma.payment.findMany({
-        where: {
-          paidAt: {
-            gte: startOfToday,
-            lte: endOfToday,
-          },
-          status: PaymentStatus.PAID,
-        },
-      }),
-      prisma.student.count({
-        where: {
-          status: StudentStatus.ACTIVE,
-          payments: {
-            none: {
-              month: currentMonth,
-              year: currentYear,
-              status: PaymentStatus.PAID,
-            },
-          },
-        },
-      }),
-    ]);
+      const settings = await prisma.settings.findMany();
+      const adminPhone = settings.find(s => s.key === 'adminWhatsapp')?.value;
+      const businessName = settings.find(s => s.key === 'businessName')?.value ?? 'TransitOS';
 
-    const totalCollected = paymentsToday.reduce((sum, p) => sum + p.amount, 0);
-    const paymentCount = paymentsToday.length;
+      if (adminPhone) {
+        const message =
+`📊 Monthly Report — ${monthName}
 
-    // Upsert report record
-    await prisma.dailyReport.upsert({
-      where: { date: reportDate },
-      update: {
-        totalCollected,
-        paymentCount,
-        pendingCount,
-      },
-      create: {
-        date: reportDate,
-        totalCollected,
-        paymentCount,
-        pendingCount,
-      },
-    });
+Business: ${businessName}
+✅ Payments Received: ${paid}
+❌ Still Pending: ${pending}
+💰 Total Collected: ₹${totalAmt.toLocaleString('en-IN')}
 
-    logger.info(`Daily Report successfully generated for ${reportDate.toISOString().slice(0, 10)}. Total Collected: ₹${(totalCollected / 100).toFixed(2)}, Payments: ${paymentCount}, Pending Students: ${pendingCount}`);
-  } catch (error) {
-    logger.error('Error occurred generating daily report job:', error);
-  }
-}
+View full report: https://transitos.vercel.app/reports`;
 
-/**
- * Screenshot Privacy Cleanup: Runs on the 1st of every month at 2:00 AM IST.
- * Deletes uploaded parent payment screenshots from Supabase Storage that are
- * older than 30 days. The transactionId is ALWAYS preserved in the database.
- */
-async function cleanupOldScreenshots(): Promise<void> {
-  try {
-    logger.info('Running monthly screenshot privacy cleanup...');
-
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    // Find PENDING payments older than 30 days that have a stored screenshot
-    const paymentsWithScreenshots = await prisma.payment.findMany({
-      where: {
-        status: 'PENDING',
-        createdAt: { lte: thirtyDaysAgo },
-        remarks: { contains: 'Storage: screenshots/' },
-      },
-      select: { id: true, transactionId: true, remarks: true },
-    });
-
-    if (paymentsWithScreenshots.length === 0) {
-      logger.info('No screenshots eligible for cleanup this cycle.');
-      return;
-    }
-
-    logger.info(`Found ${paymentsWithScreenshots.length} screenshots to clean up.`);
-
-    const { getSupabase } = await import('../lib/supabase');
-    const supabase = getSupabase();
-    const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'receipts';
-
-    let deleted = 0;
-    let failed = 0;
-
-    for (const payment of paymentsWithScreenshots) {
-      if (!payment.remarks) continue;
-
-      // Extract the storage path from the remarks field
-      const match = payment.remarks.match(/Storage: (screenshots\/[^\s.]+\.[a-z]+)/);
-      if (!match) continue;
-
-      const storagePath = match[1];
-
-      try {
-        const { error } = await supabase.storage.from(bucket).remove([storagePath]);
-
-        if (error) {
-          logger.error(`Failed to delete screenshot ${storagePath} for payment ${payment.id}: ${error.message}`);
-          failed++;
-        } else {
-          // Update remarks to note screenshot was purged — transactionId stays intact
-          await prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-              remarks: `[Screenshot deleted after 30 days for privacy]. TxID preserved: ${payment.transactionId}`,
-            },
-          });
-          deleted++;
-          logger.info(`Deleted screenshot: ${storagePath} (payment: ${payment.id})`);
-        }
-      } catch (err) {
-        logger.error(`Error deleting screenshot for payment ${payment.id}:`, err);
-        failed++;
+        await whatsappService.sendMessage(adminPhone, message);
       }
+
+      logJob('MONTHLY_REPORT', 'END', `month: ${monthName}, collected: ₹${totalAmt}`);
+    } catch (e) {
+      logJob('MONTHLY_REPORT', 'ERROR', String(e));
     }
+  }, { timezone: 'Asia/Kolkata' });
 
-    logger.info(`Screenshot cleanup complete. Deleted: ${deleted}, Failed: ${failed}.`);
-  } catch (error) {
-    logger.error('Error in screenshot privacy cleanup job:', error);
-  }
+  console.log('[Scheduler] All cron jobs registered — timezone: Asia/Kolkata');
 }
-
-/**
- * Initializes cron jobs for automated system operations
- */
-export async function initScheduler(): Promise<void> {
-  logger.info('Initializing Scheduler service...');
-
-  // 1. Fee Checks Milestone Alert (Daily at 10:00 AM IST)
-  cron.schedule('0 10 * * *', () => {
-    logger.info('Cron Triggered: Daily Fee Alert Checks Milestone');
-    runDailyFeeChecks().catch((err) => logger.error('Daily fee alert cron failed:', err));
-  }, {
-    scheduled: true,
-    timezone: 'Asia/Kolkata',
-  });
-
-  // 2. Daily Summary Tally Report (Daily at 11:59 PM IST)
-  cron.schedule('59 23 * * *', () => {
-    logger.info('Cron Triggered: Daily Summary Report Tally');
-    generateDailyReport().catch((err) => logger.error('Daily report aggregation cron failed:', err));
-  }, {
-    scheduled: true,
-    timezone: 'Asia/Kolkata',
-  });
-
-  // 3. Screenshot Privacy Cleanup (1st of every month at 2:00 AM IST)
-  cron.schedule('0 2 1 * *', () => {
-    logger.info('Cron Triggered: Monthly Screenshot Privacy Cleanup');
-    cleanupOldScreenshots().catch((err) => logger.error('Screenshot cleanup cron failed:', err));
-  }, {
-    scheduled: true,
-    timezone: 'Asia/Kolkata',
-  });
-
-  logger.info('⏰ Scheduler successfully loaded with 3 cron jobs (Asia/Kolkata).');
-}
+export { initScheduler as startScheduler }; // alias for index.ts compatibility

@@ -14,8 +14,10 @@ import {
   TEMPLATES,
   registerSSEClient,
   unregisterSSEClient,
+  whatsappService,
 } from '../services/whatsappService';
 import { logger } from '../lib/logger';
+import { getUnpaidStudents } from '../services/schedulerService';
 
 export const whatsappRouter = Router();
 
@@ -451,4 +453,64 @@ whatsappRouter.post(
       next(error);
     }
   },
+);
+
+const triggerReminderSchema = z.object({
+  school: z.string().min(1, 'School name is required'),
+  reminderType: z.nativeEnum(MessageType),
+});
+
+/**
+ * POST /api/v1/whatsapp/trigger-reminder
+ * Manually trigger reminders for a specific school
+ */
+whatsappRouter.post(
+  '/trigger-reminder',
+  requireRole(UserRole.ADMIN),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { school, reminderType } = triggerReminderSchema.parse(req.body);
+
+      const status = getWhatsAppStatus();
+      if (!status.connected) {
+        res.status(503).json({
+          success: false,
+          error: 'WhatsApp service is not connected. Pair QR first.',
+        });
+        return;
+      }
+
+      const students = await getUnpaidStudents([school]);
+      
+      // If it is REMINDER_3 or FINAL, mark overdue in DB
+      if (reminderType === MessageType.REMINDER_3 || reminderType === MessageType.FINAL) {
+        const now = new Date();
+        await prisma.feeSchedule.updateMany({
+          where: {
+            month: now.getMonth() + 1,
+            year: now.getFullYear(),
+            isPaid: false,
+            student: { school },
+          },
+          data: { overdueAt: now },
+        });
+      }
+
+      const result = await whatsappService.broadcastToList(
+        students.map(s => s.id),
+        reminderType
+      );
+
+      res.json({
+        success: true,
+        data: {
+          scannedCount: students.length,
+          sentCount: result.sent,
+          failedCount: result.failed,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 );

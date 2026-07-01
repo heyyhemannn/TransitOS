@@ -199,3 +199,14 @@ model WhatsAppSession {
   updatedAt DateTime @updatedAt
 }
 
+model SchoolReminderSchedule {
+  id           String   @id @default(cuid())
+  schoolName   String   @unique
+  reminder1Day Int      // Day of month for 1st reminder
+  reminder2Day Int      // Day of month for 2nd reminder  
+  reminder3Day Int      // Day of month for 3rd/final reminder
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+

@@ -318,10 +318,26 @@ class WhatsAppService {
   }
 
   async sendConfirmation(studentId: string, paymentId: string): Promise<void> {
-    const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
+    const payment = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: { student: true },
+    });
     if (!payment) return;
+
+    const paidDate = payment.paidAt
+      ? new Date(payment.paidAt).toLocaleDateString('en-IN', {
+          day: '2-digit', month: 'short', year: 'numeric'
+        })
+      : new Date().toLocaleDateString('en-IN', {
+          day: '2-digit', month: 'short', year: 'numeric'
+        });
+
     await this.sendTemplate(studentId, MessageType.CONFIRMATION, {
       receiptId: `PAY-${payment.year}-${paymentId.slice(-6).toUpperCase()}`,
+      studentName: payment.student?.name ?? '',
+      paidDate,
+      amount: this.formatAmount(payment.amount),
+      month: this.formatMonth(payment.month, payment.year),
     });
   }
 
@@ -393,21 +409,83 @@ export async function sendConfirmation(studentId: string, paymentId: string): Pr
   await whatsappService.sendConfirmation(studentId, paymentId);
 }
 
+const PAY_CONFIRM_URL = process.env.PAY_CONFIRM_URL ?? 'https://transitos.vercel.app/pay-confirm';
+
 export const TEMPLATES: Record<MessageType, string> = {
-  [MessageType.REMINDER_1]:
-    'Dear {parentName},\n\n🚌 *Transport Fee Reminder*\n\nFee of *₹{amount}* for *{month}* is due for *{studentName}*.\nKindly pay before the 10th to avoid disruption.\n\n💳 *Payment Options:*\n• PhonePe / GPay: *9010009976*\n• UPI ID: *{upiId}*\n\n✅ *Already Paid?*\nPlease upload your payment screenshot here so we can mark it as paid quickly:\n👉 {webAppUrl}/pay-confirm\n\nThank you 🙏\n_{businessName}_',
-  [MessageType.REMINDER_2]:
-    'Dear {parentName},\n\n⚠️ *Pending Fee Alert*\n\nTransport fee of *₹{amount}* for *{month}* is still unpaid for *{studentName}*.\nPlease clear before the 15th.\n\n✅ *Already Paid?*\nUpload your payment screenshot here — takes only 30 seconds:\n👉 {webAppUrl}/pay-confirm\n\nThank you,\n_{businessName}_',
-  [MessageType.REMINDER_3]:
-    'Dear {parentName},\n\n🚨 *URGENT: Fee Overdue*\n\nTransport fee of *₹{amount}* for *{month}* is highly overdue for *{studentName}*. Please pay *immediately* to avoid suspension of transport service.\n\n✅ *Already Paid?*\nSubmit your proof here so we can verify right away:\n👉 {webAppUrl}/pay-confirm\n\nThank you,\n_{businessName}_',
-  [MessageType.FINAL]:
-    'Dear {parentName},\n\n🚫 *FINAL NOTICE*\n\nTransport fee of *₹{amount}* for *{month}* is now OVERDUE for *{studentName}*.\nService will be *suspended* if not cleared immediately.\n\n✅ *Already Paid?*\nSubmit proof here to avoid disruption:\n👉 {webAppUrl}/pay-confirm\n\nThank you,\n_{businessName}_',
-  [MessageType.CONFIRMATION]:
-    '✅ *Payment Received!*\n\nDear {parentName}, ₹{amount} received for *{month}* — *{studentName}*.\nReceipt No: `{receiptId}`\n\nThank you! 🙏\n_{businessName}_',
-  [MessageType.EMERGENCY]:
-    '🚨 EMERGENCY TRANSPORT NOTICE:\n\n{body}\n\n_{businessName}_',
-  [MessageType.BROADCAST]:
-    '{body}',
+  [MessageType.REMINDER_1]: `Dear {parentName},
+
+Transport fee of ₹{amount} for {month} is now due.
+
+To pay and confirm:
+1️⃣ Pay ₹{amount} via UPI to: {upiId}
+2️⃣ Submit your payment screenshot here:
+👉 ${PAY_CONFIRM_URL}
+
+Fill in your name, mobile number, and upload the screenshot. Our team will verify and send your receipt.
+
+Thank you,
+{businessName}`,
+
+  [MessageType.REMINDER_2]: `Dear {parentName},
+
+🔔 Reminder: Transport fee of ₹{amount} for {month} is still pending.
+
+Please pay and confirm at:
+👉 ${PAY_CONFIRM_URL}
+
+Steps:
+1️⃣ Pay ₹{amount} to UPI: {upiId}
+2️⃣ Upload screenshot at the link above
+
+{businessName}`,
+
+  [MessageType.REMINDER_3]: `Dear {parentName},
+
+⚠️ Final Reminder: Transport fee ₹{amount} for {month} is still unpaid.
+
+Please complete payment immediately:
+1️⃣ Pay ₹{amount} to UPI: {upiId}
+2️⃣ Submit proof: ${PAY_CONFIRM_URL}
+
+Failure to pay may affect transport service.
+
+{businessName}`,
+
+  [MessageType.FINAL]: `🚨 URGENT: Dear {parentName},
+
+Transport fee ₹{amount} for {month} is OVERDUE.
+
+Pay immediately and submit proof:
+👉 ${PAY_CONFIRM_URL}
+
+UPI: {upiId}
+
+Contact admin: {adminWhatsapp}
+
+{businessName}`,
+
+  [MessageType.CONFIRMATION]: `✅ Payment Confirmed!
+
+Dear {parentName},
+
+We have verified your payment of ₹{amount} for {month}.
+
+🧾 Receipt No: {receiptId}
+📅 Date: {paidDate}
+🏫 Student: {studentName}
+
+Your receipt has been recorded. Thank you for the prompt payment! 🙏
+
+{businessName}
+${PAY_CONFIRM_URL}`,
+
+  [MessageType.EMERGENCY]: `⚠️ Notice from {businessName}:
+
+{message}
+
+For any queries: {adminWhatsapp}`,
+
+  [MessageType.BROADCAST]: `{message}`,
 };
 
 export function formatTemplate(templateText: string, vars: Record<string, string>): string {
