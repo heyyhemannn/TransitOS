@@ -178,7 +178,7 @@ export default function StudentDetailPage() {
     mutationFn: async (values: PaymentFormValues & { month: number; year: number }) => {
       await api.post('/payments', {
         studentId: id,
-        amount: Math.round(values.amount * 100), // convert ₹ to paise
+        amount: values.amount, // backend expects rupees and converts to paise
         month: values.month,
         year: values.year,
         method: values.method,

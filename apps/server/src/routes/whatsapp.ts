@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { requireRole } from '../middleware/rbac';
-import { UserRole, MessageType, StudentStatus } from '@prisma/client';
+import { UserRole, MessageType, StudentStatus, MessageStatus } from '@prisma/client';
 import {
   getWhatsAppStatus,
   syncWhatsAppStatus,
@@ -514,3 +514,44 @@ whatsappRouter.post(
     }
   }
 );
+
+/**
+ * GET /api/v1/whatsapp/logs
+ * Retrieve message logs, optionally filtered by status
+ */
+whatsappRouter.get(
+  '/logs',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const statusParam = req.query.status as string;
+      const filter: any = {};
+      if (statusParam && Object.values(MessageStatus).includes(statusParam as any)) {
+        filter.status = statusParam as MessageStatus;
+      }
+
+      const logs = await prisma.whatsAppMessage.findMany({
+        where: filter,
+        include: {
+          student: {
+            select: {
+              name: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: 100,
+      });
+
+      res.json({
+        success: true,
+        data: logs,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+

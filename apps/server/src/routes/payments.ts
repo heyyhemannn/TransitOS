@@ -14,6 +14,7 @@ import { sendConfirmation } from '../services/whatsappService';
 import { logger } from '../lib/logger';
 
 export const paymentsRouter = Router();
+export const publicPaymentsRouter = Router();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG MULTER FOR CSV
@@ -414,11 +415,9 @@ paymentsRouter.get(
 
 /**
  * POST /api/v1/payments/parent-confirm
- * Public endpoint for parents to submit payment confirmation screenshots and transaction IDs.
- * Screenshots are stored securely in Supabase private storage.
- * Transaction IDs are always preserved in the database.
+ * PUBLIC — no JWT required. Parents submit UPI TxID + screenshot from the WhatsApp pay link.
  */
-paymentsRouter.post(
+publicPaymentsRouter.post(
   '/parent-confirm',
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -428,10 +427,8 @@ paymentsRouter.post(
         screenshotBase64: z.string().optional().nullable(),
       }).parse(req.body);
 
-      // Normalize phone number
       const formattedPhone = phone.trim();
 
-      // Find any active student associated with this phone number
       const student = await prisma.student.findFirst({
         where: {
           status: 'ACTIVE',
@@ -446,34 +443,26 @@ paymentsRouter.post(
       if (!student) {
         res.status(404).json({
           success: false,
-          error: 'No active student registry found associated with this mobile number. Please double check.',
+          error: 'No active student found for this mobile number. Please check and try again.',
         });
         return;
       }
 
-      // Check if this transaction ID already exists (prevent duplicates)
-      const existingPayment = await prisma.payment.findUnique({
-        where: { transactionId },
-      });
-
+      const existingPayment = await prisma.payment.findUnique({ where: { transactionId } });
       if (existingPayment) {
         res.status(400).json({
           success: false,
-          error: 'This UPI Transaction ID has already been submitted or matched.',
+          error: 'This UPI Transaction ID has already been submitted.',
         });
         return;
       }
 
-      // Fetch oldest unpaid schedule
       const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
       const currentMonth = nowIST.getMonth() + 1;
       const currentYear = nowIST.getFullYear();
 
       const schedule = await prisma.feeSchedule.findFirst({
-        where: {
-          studentId: student.id,
-          isPaid: false,
-        },
+        where: { studentId: student.id, isPaid: false },
         orderBy: [{ year: 'asc' }, { month: 'asc' }],
       });
 
@@ -481,51 +470,35 @@ paymentsRouter.post(
       const targetYear = schedule ? schedule.year : currentYear;
       const targetAmount = schedule ? schedule.amount : student.monthlyFee;
 
-      // Upload screenshot to Supabase private storage (if provided)
-      // The transactionId is ALWAYS saved in the DB regardless of upload success/failure.
       let screenshotStoragePath: string | null = null;
       if (screenshotBase64) {
         try {
           const { getSupabase } = await import('../lib/supabase');
           const supabase = getSupabase();
-
-          // Strip data URL prefix if present
           const base64Data = screenshotBase64.replace(/^data:image\/\w+;base64,/, '');
           const buffer = Buffer.from(base64Data, 'base64');
-
-          // Detect content type from base64 header
           const contentType = screenshotBase64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
           const extension = contentType === 'image/png' ? 'png' : 'jpg';
-
-          // Path: receipts/screenshots/{transactionId}.{ext}
-          // Stored in private bucket — never publicly accessible
           const storagePath = `screenshots/${transactionId}.${extension}`;
           const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'receipts';
-
           const { error: uploadError } = await supabase.storage
             .from(bucket)
-            .upload(storagePath, buffer, {
-              contentType,
-              upsert: false, // Prevent overwriting — each TxID is unique
-            });
-
-          if (uploadError) {
-            logger.error(`Supabase screenshot upload failed for TxID ${transactionId}:`, uploadError.message);
-          } else {
+            .upload(storagePath, buffer, { contentType, upsert: false });
+          if (!uploadError) {
             screenshotStoragePath = storagePath;
-            logger.info(`Screenshot securely uploaded to Supabase: ${bucket}/${storagePath}`);
+            logger.info(`Screenshot uploaded: ${bucket}/${storagePath}`);
+          } else {
+            logger.error(`Screenshot upload failed: ${uploadError.message}`);
           }
         } catch (uploadErr) {
-          logger.error('Screenshot upload error (non-fatal). TxID still saved.', uploadErr);
+          logger.error('Screenshot upload error (non-fatal):', uploadErr);
         }
       }
 
-      // Build remarks — always include TxID, optionally note screenshot path
       const remarks = screenshotStoragePath
-        ? `Parent screenshot saved securely. Storage: ${screenshotStoragePath}. Phone: ${phone}`
+        ? `Parent screenshot saved. Storage: ${screenshotStoragePath}. Phone: ${phone}`
         : `No screenshot provided. Phone: ${phone}`;
 
-      // Create a PENDING payment record — transactionId is always persisted
       await prisma.payment.create({
         data: {
           studentId: student.id,
@@ -540,12 +513,12 @@ paymentsRouter.post(
         },
       });
 
-      logger.info(`Parent payment submission: Student: ${student.name}, TxID: ${transactionId}, Screenshot: ${screenshotStoragePath ? 'YES' : 'NO'}`);
+      logger.info(`Parent submit: Student=${student.name}, TxID=${transactionId}, Screenshot=${screenshotStoragePath ? 'YES' : 'NO'}`);
 
       res.json({
         success: true,
         data: {
-          message: 'Payment confirmation successfully submitted! Admin will verify and generate receipt shortly.',
+          message: 'Payment submitted successfully! Admin will verify and send your receipt on WhatsApp.',
           studentName: student.name,
           amount: targetAmount,
           screenshotUploaded: screenshotStoragePath !== null,
@@ -556,4 +529,3 @@ paymentsRouter.post(
     }
   },
 );
-

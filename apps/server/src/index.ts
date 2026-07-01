@@ -8,7 +8,7 @@ import cookieParser from 'cookie-parser';
 import { authRouter } from './routes/auth';
 import { studentsRouter } from './routes/students';
 import { routesRouter } from './routes/routes';
-import { paymentsRouter } from './routes/payments';
+import { paymentsRouter, publicPaymentsRouter } from './routes/payments';
 import { whatsappRouter } from './routes/whatsapp';
 import { reportsRouter } from './routes/reports';
 import { settingsRouter } from './routes/settings';
@@ -80,6 +80,9 @@ const API_PREFIX = '/api/v1';
 app.use(`${API_PREFIX}/auth`, authRouter);
 app.use(`${API_PREFIX}/students`, authenticate, studentsRouter);
 app.use(`${API_PREFIX}/routes`, authenticate, routesRouter);
+// Public payment endpoints (parent-confirm) — no JWT required
+app.use(`${API_PREFIX}/payments`, publicPaymentsRouter);
+// Authenticated payment endpoints — require JWT
 app.use(`${API_PREFIX}/payments`, authenticate, paymentsRouter);
 app.use(`${API_PREFIX}/whatsapp`, authenticate, whatsappRouter);
 app.use(`${API_PREFIX}/reports`, authenticate, reportsRouter);
