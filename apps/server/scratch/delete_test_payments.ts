@@ -6,7 +6,7 @@ async function main() {
   console.log('🗑️  Deleting test payment records...');
 
   // Test transaction IDs visible in the Payments Directory screenshot
-  const testTransactionIds = ['TXN7586345841'];
+  const testTransactionIds = ['TXN57306231003'];
 
   // Also catch any payments linked to student names containing "(Test)"
   const testStudentPayments = await prisma.payment.findMany({

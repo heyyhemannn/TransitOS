@@ -23,9 +23,21 @@ import { logger } from './lib/logger';
 import { startKeepAlive } from './lib/keepAlive';
 import { prisma } from './lib/prisma';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GLOBAL CRASH SAFETY — prevents WhatsApp Baileys unhandled rejections from
+// killing the Express server process
+// ─────────────────────────────────────────────────────────────────────────────
+process.on('unhandledRejection', (reason: unknown) => {
+  logger.error('[unhandledRejection] Caught unhandled rejection (server kept alive):', reason);
+});
+
+process.on('uncaughtException', (err: Error) => {
+  logger.error('[uncaughtException] Caught uncaught exception (server kept alive):', err);
+});
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SECURITY MIDDLEWARE
