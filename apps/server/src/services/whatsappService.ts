@@ -325,11 +325,30 @@ class WhatsAppService {
   }
 
   async sendConfirmation(studentId: string, paymentId: string): Promise<void> {
-    const payment = await prisma.payment.findUnique({
+    let payment = await prisma.payment.findUnique({
       where: { id: paymentId },
       include: { student: true },
     });
     if (!payment) return;
+
+    let receiptUrl = payment.receiptUrl;
+    if (!receiptUrl) {
+      try {
+        const { generateReceipt } = await import('./receiptService');
+        receiptUrl = await generateReceipt(paymentId);
+        
+        // Re-fetch payment to get the updated record (with receiptUrl)
+        const updatedPayment = await prisma.payment.findUnique({
+          where: { id: paymentId },
+          include: { student: true },
+        });
+        if (updatedPayment) {
+          payment = updatedPayment;
+        }
+      } catch (err) {
+        logger.error('Failed to auto-generate receipt in sendConfirmation:', err);
+      }
+    }
 
     const paidDate = payment.paidAt
       ? new Date(payment.paidAt).toLocaleDateString('en-IN', {
@@ -339,13 +358,33 @@ class WhatsAppService {
           day: '2-digit', month: 'short', year: 'numeric'
         });
 
+    const shortMonth = new Date(payment.year, payment.month - 1)
+      .toLocaleString('en-US', { month: 'short' }).toUpperCase();
+    const receiptId = `PAY-${shortMonth}${payment.year}-${paymentId.slice(-6).toUpperCase()}`;
+
     await this.sendTemplate(studentId, MessageType.CONFIRMATION, {
-      receiptId: `PAY-${payment.year}-${paymentId.slice(-6).toUpperCase()}`,
+      receiptId,
       studentName: payment.student?.name ?? '',
       paidDate,
       amount: this.formatAmount(payment.amount),
       month: this.formatMonth(payment.month, payment.year),
     });
+
+    // Send the generated PDF receipt document as a WhatsApp message
+    if (payment.receiptUrl && this.sock && this.sock.user?.id) {
+      try {
+        const jid = this.formatPhone(payment.student.whatsappNumber);
+        await this.sock.sendMessage(jid, {
+          document: { url: payment.receiptUrl },
+          mimetype: 'application/pdf',
+          fileName: `${receiptId}.pdf`,
+          caption: `🧾 Receipt for ${payment.student.name} - ${this.formatMonth(payment.month, payment.year)}`,
+        });
+        logger.info(`Successfully sent receipt PDF to parent WhatsApp: ${payment.student.whatsappNumber}`);
+      } catch (pdfErr) {
+        logger.error(`Failed to send receipt PDF document via WhatsApp for payment ${paymentId}:`, pdfErr);
+      }
+    }
   }
 
   async broadcastToList(

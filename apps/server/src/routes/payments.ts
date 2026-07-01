@@ -499,26 +499,59 @@ publicPaymentsRouter.post(
         ? `Parent screenshot saved. Storage: ${screenshotStoragePath}. Phone: ${phone}`
         : `No screenshot provided. Phone: ${phone}`;
 
-      await prisma.payment.create({
-        data: {
-          studentId: student.id,
-          amount: targetAmount,
-          month: targetMonth,
-          year: targetYear,
-          paidAt: nowIST,
-          transactionId,
-          method: 'UPI',
-          status: 'PENDING',
-          remarks,
-        },
+      // Create payment and update fee schedules
+      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const payment = await tx.payment.create({
+          data: {
+            studentId: student.id,
+            amount: targetAmount,
+            month: targetMonth,
+            year: targetYear,
+            paidAt: nowIST,
+            transactionId,
+            method: 'UPI',
+            status: PaymentStatus.PAID,
+            remarks,
+          },
+        });
+
+        await tx.feeSchedule.upsert({
+          where: {
+            studentId_month_year: {
+              studentId: student.id,
+              month: targetMonth,
+              year: targetYear,
+            },
+          },
+          update: {
+            isPaid: true,
+            paidAt: nowIST,
+          },
+          create: {
+            studentId: student.id,
+            month: targetMonth,
+            year: targetYear,
+            dueDate: new Date(Date.UTC(targetYear, targetMonth - 1, 10, 4, 30, 0)),
+            amount: targetAmount,
+            isPaid: true,
+            paidAt: nowIST,
+          },
+        });
+
+        return payment;
       });
 
-      logger.info(`Parent submit: Student=${student.name}, TxID=${transactionId}, Screenshot=${screenshotStoragePath ? 'YES' : 'NO'}`);
+      logger.info(`Parent submit (Auto-Confirmed): Student=${student.name}, TxID=${transactionId}, Screenshot=${screenshotStoragePath ? 'YES' : 'NO'}`);
+
+      // Trigger non-blocking async receipt generation & WhatsApp confirmation (including PDF receipt document)
+      sendConfirmation(student.id, result.id).catch((err) => {
+        logger.error(`WhatsApp confirmation failed in parent-confirm for studentId ${student.id}:`, err);
+      });
 
       res.json({
         success: true,
         data: {
-          message: 'Payment submitted successfully! Admin will verify and send your receipt on WhatsApp.',
+          message: 'Payment confirmed successfully! Receipt and confirmation have been sent to your WhatsApp.',
           studentName: student.name,
           amount: targetAmount,
           screenshotUploaded: screenshotStoragePath !== null,
