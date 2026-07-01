@@ -67,88 +67,133 @@ function buildReceiptHTML(data: {
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { 
     font-family: 'Arial', sans-serif; 
-    background: #ffffff;
-    padding: 40px;
+    background: #f8fafc;
+    padding: 60px 40px;
     color: #1a1a1a;
   }
   .receipt {
-    max-width: 600px;
+    max-width: 680px;
     margin: 0 auto;
-    border: 2px solid #2563EB;
-    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
     overflow: hidden;
+    background: #ffffff;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -4px rgba(0,0,0,0.05);
   }
   .header {
     background: #2563EB;
     color: white;
-    padding: 24px 32px;
+    padding: 32px 40px;
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
-  .header .brand { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
+  .brand-container {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .brand-container .logo {
+    width: 48px;
+    height: 48px;
+  }
+  .header .brand { 
+    font-size: 28px; 
+    font-weight: 800; 
+    letter-spacing: -0.5px; 
+    line-height: 1;
+  }
   .header .brand span { color: #93C5FD; }
+  .header .subtitle {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    opacity: 0.95;
+    margin-top: 4px;
+    text-transform: uppercase;
+  }
   .header .receipt-no { text-align: right; }
   .header .receipt-no .label { font-size: 11px; opacity: 0.8; text-transform: uppercase; letter-spacing: 1px; }
-  .header .receipt-no .value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .header .receipt-no .value { font-size: 18px; font-weight: 700; margin-top: 4px; }
   .paid-stamp {
     background: #DCFCE7;
     border-bottom: 2px solid #BBF7D0;
-    padding: 10px 32px;
+    padding: 12px 40px;
     display: flex;
     align-items: center;
     gap: 8px;
   }
   .paid-stamp .dot { width: 10px; height: 10px; background: #16A34A; border-radius: 50%; }
   .paid-stamp .text { color: #15803D; font-weight: 700; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
-  .paid-stamp .date { color: #16A34A; font-size: 12px; margin-left: auto; }
-  .body { padding: 28px 32px; }
+  .paid-stamp .date { color: #16A34A; font-size: 13px; margin-left: auto; font-weight: 600; }
+  .body { padding: 36px 40px; }
   .section-title {
-    font-size: 10px;
+    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: #6B7280;
+    letter-spacing: 2px;
+    color: #64748B;
     margin-bottom: 12px;
-    margin-top: 20px;
+    margin-top: 24px;
+    font-weight: 700;
   }
   .section-title:first-child { margin-top: 0; }
-  .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F3F4F6; }
+  .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #F1F5F9; }
   .row:last-child { border-bottom: none; }
-  .row .label { color: #6B7280; font-size: 13px; }
-  .row .value { font-size: 13px; font-weight: 600; color: #111827; text-align: right; max-width: 60%; }
+  .row .label { color: #64748B; font-size: 14px; }
+  .row .value { font-size: 14px; font-weight: 600; color: #0F172A; text-align: right; max-width: 60%; }
   .amount-box {
     background: #EFF6FF;
     border: 1px solid #BFDBFE;
-    border-radius: 8px;
-    padding: 16px 20px;
-    margin: 20px 0;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 28px 0 10px 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
-  .amount-box .label { color: #1D4ED8; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-  .amount-box .rupees { font-size: 28px; font-weight: 800; color: #1D4ED8; }
+  .amount-box .label { color: #1D4ED8; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .amount-box .rupees { font-size: 32px; font-weight: 800; color: #1D4ED8; }
   .amount-words {
-    font-size: 11px;
-    color: #6B7280;
+    font-size: 12px;
+    color: #64748B;
     font-style: italic;
-    margin-top: 4px;
+    margin-top: 6px;
   }
   .footer {
-    background: #F9FAFB;
-    border-top: 1px solid #E5E7EB;
-    padding: 16px 32px;
+    background: #F8FAFC;
+    border-top: 1px solid #E2E8F0;
+    padding: 24px 40px;
     text-align: center;
   }
-  .footer .thank-you { font-size: 14px; font-weight: 600; color: #374151; }
-  .footer .sub { font-size: 11px; color: #9CA3AF; margin-top: 4px; }
-  .footer .upi { font-size: 11px; color: #6B7280; margin-top: 8px; }
+  .footer .thank-you { font-size: 15px; font-weight: 700; color: #334155; }
+  .footer .sub { font-size: 12px; color: #64748B; margin-top: 6px; font-weight: 600; }
+  .footer .upi { font-size: 12px; color: #475569; margin-top: 8px; font-weight: 500; }
 </style>
 </head>
 <body>
 <div class="receipt">
   <div class="header">
-    <div class="brand">Transit<span>OS</span></div>
+    <div class="brand-container">
+      <svg class="logo" viewBox="296 18 88 88" xmlns="http://www.w3.org/2000/svg">
+        <rect x="296" y="18" width="88" height="88" rx="22" fill="#ffffff" fill-opacity="0.15" />
+        <rect x="308" y="30" width="64" height="48" rx="8" fill="#ffffff" />
+        <rect x="315" y="37" width="50" height="20" rx="4" fill="#2563EB" />
+        <rect x="318" y="40" width="13" height="13" rx="3" fill="#BFDBFE" />
+        <rect x="334" y="40" width="13" height="13" rx="3" fill="#BFDBFE" />
+        <rect x="350" y="40" width="13" height="13" rx="3" fill="#BFDBFE" />
+        <rect x="308" y="55" width="64" height="2.5" rx="1.25" fill="#F59E0B" />
+        <rect x="315" y="61" width="24" height="12" rx="3" fill="#2563EB" />
+        <rect x="343" y="61" width="24" height="12" rx="3" fill="#2563EB" />
+        <circle cx="321" cy="80" r="7.5" fill="#1e293b" />
+        <circle cx="321" cy="80" r="5" fill="#0d1528" stroke="#ffffff" stroke-width="1.8" />
+        <circle cx="359" cy="80" r="7.5" fill="#1e293b" />
+        <circle cx="359" cy="80" r="5" fill="#0d1528" stroke="#ffffff" stroke-width="1.8" />
+      </svg>
+      <div>
+        <div class="brand">Transit<span>OS</span></div>
+        <div class="subtitle">School Transport Receipt</div>
+      </div>
+    </div>
     <div class="receipt-no">
       <div class="label">Receipt No</div>
       <div class="value">${data.receiptId}</div>
@@ -181,7 +226,7 @@ function buildReceiptHTML(data: {
     </div>
   </div>
   <div class="footer">
-    <div class="thank-you">Thank you for the prompt payment! 🙏</div>
+    <div class="thank-you">Thank you for your prompt payment! 🙏</div>
     <div class="sub">${data.businessName}</div>
     <div class="upi">UPI: ${data.upiId}</div>
   </div>
@@ -224,7 +269,7 @@ export class ReceiptService {
 
       // Generate PDF buffer
       const file = { content: html };
-      const options = { format: 'A5', printBackground: true };
+      const options = { format: 'A4', printBackground: true };
       const pdfBuffer = await htmlPdf.generatePdf(file, options);
 
       // Ensure the storage bucket exists
