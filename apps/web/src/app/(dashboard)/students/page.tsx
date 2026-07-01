@@ -264,7 +264,7 @@ export default function StudentsPage() {
     setMatrixOpen(true);
     setFeeMatrix([]);
     try {
-      const res = await api.get<{ data: any[] }>(`/students/${student.id}/payments-matrix`);
+      const res = await api.get<{ data: any[] }>(`/students/${student.id}/payments`);
       setFeeMatrix(res.data.data);
     } catch {
       toast({ title: 'Error', description: 'Failed to load fee matrix', variant: 'destructive' });
