@@ -98,7 +98,7 @@ class WhatsAppService {
         },
         logger: baileysLogger,
         printQRInTerminal: false,
-        msgRetryCounterCache: {} as any,
+        msgRetryCounterCache: new Map() as any,
         generateHighQualityLinkPreview: false,
         syncFullHistory: false,
         browser: ['TransitOS', 'Chrome', '1.0.0'],
