@@ -227,6 +227,12 @@ export class ReceiptService {
       const options = { format: 'A5', printBackground: true };
       const pdfBuffer = await htmlPdf.generatePdf(file, options);
 
+      // Ensure the storage bucket exists
+      const { error: bucketError } = await supabase.storage.createBucket('receipts', { public: true });
+      if (bucketError) {
+        console.log(`[Receipt] Bucket check/creation info: ${bucketError.message}`);
+      }
+
       // Upload to Supabase Storage
       const fileName = `receipts/${payment.student.id}/${receiptId}.pdf`;
       const { error } = await supabase.storage
