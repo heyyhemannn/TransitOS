@@ -385,7 +385,10 @@ studentsRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
-      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1;
+      const defaultStartYear = currentMonth >= 6 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+      const startYear = parseInt(req.query.year as string) || defaultStartYear;
+      const endYear = startYear + 1;
 
       const student = await prisma.student.findUnique({ where: { id } });
       if (!student) {
@@ -395,33 +398,44 @@ studentsRouter.get(
 
       const [payments, feeSchedules] = await Promise.all([
         prisma.payment.findMany({
-          where: { studentId: id, year },
+          where: {
+            studentId: id,
+            OR: [
+              { year: startYear, month: { gte: 6 } },
+              { year: endYear, month: { lte: 5 } }
+            ]
+          },
         }),
         prisma.feeSchedule.findMany({
-          where: { studentId: id, year },
+          where: {
+            studentId: id,
+            OR: [
+              { year: startYear, month: { gte: 6 } },
+              { year: endYear, month: { lte: 5 } }
+            ]
+          },
         }),
       ]);
 
-      const monthNames = [
-        'January',
-        'February',
-        'March',
-        'April',
-        'May',
-        'June',
-        'July',
-        'August',
-        'September',
-        'October',
-        'November',
-        'December',
+      const academicMonths = [
+        { month: 6, year: startYear, name: 'June' },
+        { month: 7, year: startYear, name: 'July' },
+        { month: 8, year: startYear, name: 'August' },
+        { month: 9, year: startYear, name: 'September' },
+        { month: 10, year: startYear, name: 'October' },
+        { month: 11, year: startYear, name: 'November' },
+        { month: 12, year: startYear, name: 'December' },
+        { month: 1, year: endYear, name: 'January' },
+        { month: 2, year: endYear, name: 'February' },
+        { month: 3, year: endYear, name: 'March' },
+        { month: 4, year: endYear, name: 'April' },
+        { month: 5, year: endYear, name: 'May' },
       ];
 
-      // Assemble 12-month grid
-      const historyGrid = Array.from({ length: 12 }, (_, i) => {
-        const monthIndex = i + 1;
-        const payment = payments.find((p: Payment) => p.month === monthIndex);
-        const schedule = feeSchedules.find((s: FeeSchedule) => s.month === monthIndex);
+      // Assemble 12-month academic grid
+      const historyGrid = academicMonths.map((m) => {
+        const payment = payments.find((p) => p.month === m.month && p.year === m.year);
+        const schedule = feeSchedules.find((s) => s.month === m.month && s.year === m.year);
 
         // Determine month-over-month status
         let status = 'PENDING';
@@ -436,9 +450,9 @@ studentsRouter.get(
         }
 
         return {
-          month: monthIndex,
-          monthName: monthNames[i],
-          year,
+          month: m.month,
+          monthName: m.name,
+          year: m.year,
           amount: payment?.amount ?? null,
           paidAt: payment?.paidAt ?? null,
           transactionId: payment?.transactionId ?? null,

@@ -249,9 +249,11 @@ export default function StudentDetailPage() {
     );
   }
 
-  // ─── Build payment grid (current year, all 12 months) ───────────────────────
+  // ─── Build payment grid (academic year: June to May) ───────────────────────
   const now = new Date();
-  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const startYear = currentMonth >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+  const endYear = startYear + 1;
 
   const paymentsByMonthYear = new Map<string, Payment>();
   student.payments.forEach((p) => paymentsByMonthYear.set(`${p.year}-${p.month}`, p));
@@ -259,13 +261,27 @@ export default function StudentDetailPage() {
   const feeSchedulesByMonthYear = new Map<string, FeeSchedule>();
   student.feeSchedules.forEach((f) => feeSchedulesByMonthYear.set(`${f.year}-${f.month}`, f));
 
-  const currentYearPayments = Array.from({ length: 12 }, (_, i) => {
-    const month = i + 1;
-    const key = `${currentYear}-${month}`;
+  const academicMonths = [
+    { month: 6, year: startYear },
+    { month: 7, year: startYear },
+    { month: 8, year: startYear },
+    { month: 9, year: startYear },
+    { month: 10, year: startYear },
+    { month: 11, year: startYear },
+    { month: 12, year: startYear },
+    { month: 1, year: endYear },
+    { month: 2, year: endYear },
+    { month: 3, year: endYear },
+    { month: 4, year: endYear },
+    { month: 5, year: endYear },
+  ];
+
+  const currentYearPayments = academicMonths.map((m) => {
+    const key = `${m.year}-${m.month}`;
     const payment = paymentsByMonthYear.get(key);
     const schedule = feeSchedulesByMonthYear.get(key);
-    const isFuture = month > now.getMonth() + 1;
-    return { month, year: currentYear, payment, schedule, isFuture };
+    const isFuture = m.year > now.getFullYear() || (m.year === now.getFullYear() && m.month > now.getMonth() + 1);
+    return { month: m.month, year: m.year, payment, schedule, isFuture };
   });
 
   return (
@@ -427,9 +443,9 @@ export default function StudentDetailPage() {
           <div>
             <CardTitle className="text-base font-bold flex items-center gap-2">
               <IndianRupee className="h-4 w-4 text-green-500" />
-              Payment History — {currentYear}
+              Payment History — {startYear}-{endYear.toString().slice(-2)}
             </CardTitle>
-            <CardDescription>All months with payment status</CardDescription>
+            <CardDescription>Academic Year months with payment status</CardDescription>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500 inline-block" /> Paid</span>

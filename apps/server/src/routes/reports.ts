@@ -72,16 +72,30 @@ reportsRouter.get(
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1;
+      const defaultStartYear = currentMonth >= 6 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+      const startYear = parseInt(req.query.year as string) || defaultStartYear;
+      const endYear = startYear + 1;
 
       const [payments, feeSchedules, activeStudentsList] = await Promise.all([
         prisma.payment.findMany({
-          where: { year, status: PaymentStatus.PAID },
-          select: { month: true, amount: true },
+          where: {
+            status: PaymentStatus.PAID,
+            OR: [
+              { year: startYear, month: { gte: 6 } },
+              { year: endYear, month: { lte: 5 } }
+            ]
+          },
+          select: { month: true, year: true, amount: true },
         }),
         prisma.feeSchedule.findMany({
-          where: { year },
-          select: { month: true, amount: true },
+          where: {
+            OR: [
+              { year: startYear, month: { gte: 6 } },
+              { year: endYear, month: { lte: 5 } }
+            ]
+          },
+          select: { month: true, year: true, amount: true },
         }),
         prisma.student.findMany({
           where: { status: StudentStatus.ACTIVE },
@@ -91,32 +105,30 @@ reportsRouter.get(
 
       const defaultFallbackExpected = activeStudentsList.reduce((sum, s) => sum + s.monthlyFee, 0);
 
-      const monthsNames = [
-        'January',
-        'February',
-        'March',
-        'April',
-        'May',
-        'June',
-        'July',
-        'August',
-        'September',
-        'October',
-        'November',
-        'December',
+      const academicMonths = [
+        { month: 6, year: startYear, name: 'June' },
+        { month: 7, year: startYear, name: 'July' },
+        { month: 8, year: startYear, name: 'August' },
+        { month: 9, year: startYear, name: 'September' },
+        { month: 10, year: startYear, name: 'October' },
+        { month: 11, year: startYear, name: 'November' },
+        { month: 12, year: startYear, name: 'December' },
+        { month: 1, year: endYear, name: 'January' },
+        { month: 2, year: endYear, name: 'February' },
+        { month: 3, year: endYear, name: 'March' },
+        { month: 4, year: endYear, name: 'April' },
+        { month: 5, year: endYear, name: 'May' },
       ];
 
-      const monthlyData = Array.from({ length: 12 }, (_, i) => {
-        const monthIndex = i + 1;
-
-        // Sum payments for this month
+      const monthlyData = academicMonths.map((m) => {
+        // Sum payments for this month & year
         const collected = payments
-          .filter((p) => p.month === monthIndex)
+          .filter((p) => p.month === m.month && p.year === m.year)
           .reduce((sum, p) => sum + p.amount, 0);
 
-        // Sum fee schedules for this month
+        // Sum fee schedules for this month & year
         let expected = feeSchedules
-          .filter((s) => s.month === monthIndex)
+          .filter((s) => s.month === m.month && s.year === m.year)
           .reduce((sum, s) => sum + s.amount, 0);
 
         // If no schedules are created for this future month, fallback to current potential revenue
@@ -127,8 +139,9 @@ reportsRouter.get(
         const pending = Math.max(0, expected - collected);
 
         return {
-          month: monthIndex,
-          monthName: monthsNames[i],
+          month: m.month,
+          year: m.year,
+          monthName: `${m.name} ${m.year}`,
           collected,
           expected,
           pending,
