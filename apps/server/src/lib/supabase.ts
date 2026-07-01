@@ -1,4 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
+
+// Supabase realtime client requires global WebSocket constructor in Node < 22
+if (!globalThis.WebSocket) {
+  globalThis.WebSocket = ws as any;
+}
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;  
