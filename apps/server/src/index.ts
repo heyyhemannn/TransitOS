@@ -69,7 +69,7 @@ app.use(
 // Handle OPTIONS preflight for ALL routes explicitly
 // This MUST be before all other route registrations
 app.options(
-  '(.*)',
+  '*any',
   cors({
     origin: allowedOrigins,
     credentials: true,
