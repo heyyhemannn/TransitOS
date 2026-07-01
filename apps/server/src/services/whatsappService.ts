@@ -1,6 +1,5 @@
 import makeWASocket, {
   DisconnectReason,
-  useMultiFileAuthState,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   WASocket,
@@ -13,6 +12,7 @@ import * as fs from 'fs';
 import type { Response as ExpressResponse } from 'express';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { usePrismaAuthState } from './whatsappDbAuth';
 import { MessageType, MessageStatus } from '@prisma/client';
 
 // Memory buffer for Baileys logs
@@ -20,7 +20,7 @@ export const baileysLogsBuffer: string[] = [];
 
 // Custom Pino logger for Baileys internals that writes to memory buffer
 const baileysLogger = P(
-  { level: 'debug' },
+  { level: 'warn' }, // 'warn' only — saves RAM on free tier
   {
     write(msg: string) {
       try {
@@ -49,14 +49,7 @@ const baileysLogger = P(
   }
 );
 
-// ─── State ───────────────────────────────────────────────────────────────────
-let waSocket: WASocket | null = null;
-let qrCodeBase64: string | null = null;
-let isConnected = false;
-let isConnecting = false;
-let clientPhone: string | null = null;
-
-// ─── SSE: Real-time push to all browser tabs ─────────────────────────────────
+// SSE clients map
 const sseClients: Set<ExpressResponse> = new Set();
 
 export function broadcastSSE(event: string, data: object) {
@@ -78,11 +71,328 @@ export function unregisterSSEClient(res: ExpressResponse) {
   sseClients.delete(res);
 }
 
-export function getWhatsAppConnecting(): boolean {
-  return isConnecting;
+class WhatsAppService {
+  sock: WASocket | null = null;
+  isReady = false;
+  isConnecting = false;
+  qrBase64: string | null = null;
+  connectedPhone: string | null = null;
+  lastSentAt = 0;
+
+  async initialize(): Promise<void> {
+    logger.info('Initializing WhatsApp client via Baileys and Prisma Session Store...');
+    this.isConnecting = true;
+    broadcastSSE('status', { connected: false, phone: null, authenticating: true });
+
+    try {
+      const { state, saveCreds } = await usePrismaAuthState();
+      const { version } = await fetchLatestBaileysVersion();
+
+      logger.info(`Using Baileys version: ${version.join('.')}`);
+
+      this.sock = makeWASocket({
+        version,
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
+        },
+        logger: baileysLogger,
+        printQRInTerminal: false,
+        msgRetryCounterCache: {} as any,
+        generateHighQualityLinkPreview: false,
+        syncFullHistory: false,
+        browser: ['TransitOS', 'Chrome', '1.0.0'],
+      });
+
+      this.sock.ev.on('creds.update', saveCreds);
+
+      this.sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+          this.isConnecting = true;
+          this.isReady = false;
+          try {
+            this.qrBase64 = await QRCode.toDataURL(qr);
+            logger.info('WhatsApp QR Code generated — waiting for scan.');
+            broadcastSSE('qr', { qr: this.qrBase64 });
+          } catch (err) {
+            logger.error('Failed to convert QR to base64:', err);
+          }
+        }
+
+        if (connection === 'open') {
+          this.isReady = true;
+          this.isConnecting = false;
+          this.qrBase64 = null;
+          this.connectedPhone = this.sock?.user?.id?.split(':')[0] ?? null;
+          logger.info(`WhatsApp connected. Phone: ${this.connectedPhone}`);
+          broadcastSSE('status', { connected: true, phone: this.connectedPhone });
+        }
+
+        if (connection === 'close') {
+          this.isReady = false;
+          this.isConnecting = false;
+          const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+          this.connectedPhone = null;
+          this.qrBase64 = null;
+          broadcastSSE('status', { connected: false, phone: null });
+
+          logger.warn(`WhatsApp connection closed. Code=${statusCode} Reconnect=${shouldReconnect}`);
+
+          if (shouldReconnect) {
+            // Re-initialize after 5 seconds
+            setTimeout(() => {
+              this.initialize().catch((err) => {
+                logger.error('Failed to re-initialize WhatsApp:', err);
+              });
+            }, 5000);
+          } else {
+            // Logged out — clear session from DB
+            logger.info('WhatsApp logged out. Clearing database session.');
+            await prisma.whatsAppSession.deleteMany();
+            // Restart to generate new QR
+            setTimeout(() => {
+              this.initialize().catch((err) => {
+                logger.error('Failed to restart WhatsApp after logout:', err);
+              });
+            }, 3000);
+          }
+        }
+      });
+    } catch (error) {
+      logger.error('WhatsApp initialization error:', error);
+      setTimeout(() => this.initialize(), 10000);
+    }
+  }
+
+  getStatus() {
+    // Sync from live socket if possible
+    if (this.sock?.user?.id) {
+      this.isReady = true;
+      this.isConnecting = false;
+      this.connectedPhone = this.sock.user.id.split(':')[0];
+    }
+    return {
+      connected: this.isReady,
+      phone: this.connectedPhone,
+      qrCode: this.qrBase64,
+    };
+  }
+
+  getQR() {
+    return this.qrBase64;
+  }
+
+  getConnecting() {
+    return this.isConnecting;
+  }
+
+  private formatPhone(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    const withCountry = digits.startsWith('91') ? digits : `91${digits}`;
+    return `${withCountry}@s.whatsapp.net`;
+  }
+
+  private async enforceRateLimit() {
+    const elapsed = Date.now() - this.lastSentAt;
+    if (elapsed < 3000) {
+      await new Promise(resolve => setTimeout(resolve, 3000 - elapsed));
+    }
+    this.lastSentAt = Date.now();
+  }
+
+  private formatAmount(paise: number): string {
+    return (paise / 100).toLocaleString('en-IN');
+  }
+
+  private formatMonth(month: number, year: number): string {
+    return new Date(year, month - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  }
+
+  async sendMessage(
+    phone: string,
+    body: string,
+    studentId: string | null = null,
+    type: MessageType = MessageType.BROADCAST,
+  ): Promise<{ success: boolean; error?: string }> {
+    const now = new Date();
+    const jid = this.formatPhone(phone);
+
+    // Sync from live socket — most reliable check
+    const actuallyConnected = !!(this.sock?.user?.id);
+    if (actuallyConnected) {
+      this.isReady = true;
+      this.isConnecting = false;
+      this.connectedPhone = this.sock!.user!.id.split(':')[0];
+    }
+
+    if (!actuallyConnected || !this.sock) {
+      const errMsg = 'WhatsApp client is not connected. Please pair QR first.';
+      logger.warn(`Cannot send message. Client not connected. Recipient: ${phone}`);
+      await prisma.whatsAppMessage.create({
+        data: { studentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
+      });
+      return { success: false, error: errMsg };
+    }
+
+    try {
+      await this.enforceRateLimit();
+
+      if (type === MessageType.REMINDER_1) {
+        // Attempt to send payment QR image as media
+        try {
+          const qrImagePath = path.resolve(process.cwd(), 'apps/server/src/assets/payment_qr.jpg');
+          if (fs.existsSync(qrImagePath)) {
+            const imageBuffer = fs.readFileSync(qrImagePath);
+            await this.sock.sendMessage(jid, {
+              image: imageBuffer,
+              caption: body,
+              mimetype: 'image/jpeg',
+            });
+          } else {
+            logger.warn(`Payment QR image not found at ${qrImagePath}. Sending text only.`);
+            await this.sock.sendMessage(jid, { text: body });
+          }
+        } catch (mediaErr) {
+          logger.error('Failed to send QR image media, falling back to text:', mediaErr);
+          await this.sock.sendMessage(jid, { text: body });
+        }
+      } else {
+        await this.sock.sendMessage(jid, { text: body });
+      }
+
+      await prisma.whatsAppMessage.create({
+        data: { studentId, phone, type, body, status: MessageStatus.SENT, sentAt: now, createdAt: now },
+      });
+      return { success: true };
+    } catch (err: any) {
+      const errMsg = err?.message || 'Unknown send error in WhatsApp client';
+      logger.error(`Failed to send WhatsApp message to ${phone}:`, err);
+      await prisma.whatsAppMessage.create({
+        data: { studentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
+      });
+      return { success: false, error: errMsg };
+    }
+  }
+
+  async sendTemplate(
+    studentId: string,
+    type: MessageType,
+    extraVars?: Record<string, string>
+  ): Promise<void> {
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { route: true },
+    });
+    if (!student) throw new Error(`Student ${studentId} not found`);
+
+    const settings = await prisma.settings.findMany();
+    const getSetting = (key: string) => settings.find(s => s.key === key)?.value ?? '';
+
+    const currentDate = new Date();
+    const month = currentDate.getMonth() + 1;
+    const year = currentDate.getFullYear();
+
+    const vars: Record<string, string> = {
+      parentName: student.parentName,
+      amount: this.formatAmount(student.monthlyFee),
+      month: this.formatMonth(month, year),
+      upiId: getSetting('upiId'),
+      businessName: getSetting('businessName'),
+      adminWhatsapp: getSetting('adminWhatsapp'),
+      receiptId: extraVars?.receiptId ?? '',
+      ...extraVars,
+    };
+
+    const templates = TEMPLATES;
+
+    let body = templates[type] ?? '';
+    for (const [key, value] of Object.entries(vars)) {
+      body = body.replaceAll(`{${key}}`, value);
+    }
+
+    await this.sendMessage(student.whatsappNumber, body, studentId, type);
+  }
+
+  async sendConfirmation(studentId: string, paymentId: string): Promise<void> {
+    const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) return;
+    await this.sendTemplate(studentId, MessageType.CONFIRMATION, {
+      receiptId: `PAY-${payment.year}-${paymentId.slice(-6).toUpperCase()}`,
+    });
+  }
+
+  async broadcastToList(
+    studentIds: string[],
+    type: MessageType,
+    extraVars?: Record<string, string>
+  ): Promise<{ sent: number; failed: number }> {
+    let sent = 0, failed = 0;
+    for (const id of studentIds) {
+      try {
+        await this.sendTemplate(id, type, extraVars);
+        sent++;
+      } catch {
+        failed++;
+      }
+    }
+    return { sent, failed };
+  }
+
+  async logout(): Promise<void> {
+    await this.sock?.logout();
+    await prisma.whatsAppSession.deleteMany();
+    this.isReady = false;
+    this.isConnecting = false;
+    this.connectedPhone = null;
+    this.qrBase64 = null;
+    broadcastSSE('status', { connected: false, phone: null });
+  }
 }
 
-// ─── Message Templates ───────────────────────────────────────────────────────
+export const whatsappService = new WhatsAppService();
+
+// ─── Exported functions for backward compatibility ──────────────────────────
+export async function initWhatsApp(): Promise<void> {
+  await whatsappService.initialize();
+}
+
+export function getWhatsAppQR(): string | null {
+  return whatsappService.getQR();
+}
+
+export function getWhatsAppStatus(): { connected: boolean; phone: string | null } {
+  const status = whatsappService.getStatus();
+  return {
+    connected: status.connected,
+    phone: status.phone,
+  };
+}
+
+export async function syncWhatsAppStatus(): Promise<{ connected: boolean; phone: string | null }> {
+  return getWhatsAppStatus();
+}
+
+export function getWhatsAppConnecting(): boolean {
+  return whatsappService.getConnecting();
+}
+
+export async function sendWhatsAppMessage(
+  phone: string,
+  body: string,
+  studentId: string | null = null,
+  type: MessageType = MessageType.BROADCAST,
+): Promise<{ success: boolean; error?: string }> {
+  return whatsappService.sendMessage(phone, body, studentId, type);
+}
+
+export async function sendConfirmation(studentId: string, paymentId: string): Promise<void> {
+  await whatsappService.sendConfirmation(studentId, paymentId);
+}
+
 export const TEMPLATES: Record<MessageType, string> = {
   [MessageType.REMINDER_1]:
     'Dear {parentName},\n\n🚌 *Transport Fee Reminder*\n\nFee of *₹{amount}* for *{month}* is due for *{studentName}*.\nKindly pay before the 10th to avoid disruption.\n\n💳 *Payment Options:*\n• PhonePe / GPay: *9010009976*\n• UPI ID: *{upiId}*\n\n✅ *Already Paid?*\nPlease upload your payment screenshot here so we can mark it as paid quickly:\n👉 {webAppUrl}/pay-confirm\n\nThank you 🙏\n_{businessName}_',
@@ -100,9 +410,6 @@ export const TEMPLATES: Record<MessageType, string> = {
     '{body}',
 };
 
-/**
- * Format templates with variable substitutions
- */
 export function formatTemplate(templateText: string, vars: Record<string, string>): string {
   let text = templateText;
   for (const [key, value] of Object.entries(vars)) {
@@ -111,264 +418,6 @@ export function formatTemplate(templateText: string, vars: Record<string, string
   return text;
 }
 
-/**
- * Normalizes an Indian phone number to WhatsApp JID format.
- * E.g., "9848022338" -> "919848022338@s.whatsapp.net"
- */
-function formatWhatsAppJID(phone: string): string {
-  let cleaned = phone.replace(/\D/g, '');
-  if (cleaned.length === 10) {
-    cleaned = '91' + cleaned;
-  }
-  if (!cleaned.endsWith('@s.whatsapp.net')) {
-    cleaned = cleaned + '@s.whatsapp.net';
-  }
-  return cleaned;
-}
-
-// ─── Auth state directory ────────────────────────────────────────────────────
-const AUTH_DIR = path.resolve(process.cwd(), './whatsapp-session');
-
-/**
- * Initialize the WhatsApp Baileys client (WebSocket, no Chromium)
- */
-export async function initWhatsApp(): Promise<void> {
-  logger.info('Initializing WhatsApp client via Baileys (WebSocket)...');
-
-  // Ensure session directory exists
-  if (!fs.existsSync(AUTH_DIR)) {
-    fs.mkdirSync(AUTH_DIR, { recursive: true });
-  }
-
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  const { version } = await fetchLatestBaileysVersion();
-
-  logger.info(`Using Baileys version: ${version.join('.')}`);
-
-  waSocket = makeWASocket({
-    version,
-    auth: {
-      creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
-    },
-    printQRInTerminal: false,
-    logger: baileysLogger,
-    // Reduce memory usage
-    msgRetryCounterCache: {} as any,
-    generateHighQualityLinkPreview: false,
-    syncFullHistory: false,
-  });
-
-  // ── QR Code event ──────────────────────────────────────────────────────────
-  waSocket.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-
-    if (qr) {
-      isConnecting = true;
-      try {
-        qrCodeBase64 = await QRCode.toDataURL(qr);
-        logger.info('WhatsApp QR Code generated — waiting for scan.');
-        broadcastSSE('qr', { qr: qrCodeBase64 });
-      } catch (err) {
-        logger.error('Failed to convert QR to base64:', err);
-      }
-    }
-
-    if (connection === 'close') {
-      const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-
-      isConnected = false;
-      isConnecting = false;
-      clientPhone = null;
-      qrCodeBase64 = null;
-      broadcastSSE('status', { connected: false, phone: null });
-
-      logger.warn(`WhatsApp connection closed. Code=${statusCode} Reconnect=${shouldReconnect}`);
-
-      if (shouldReconnect) {
-        // Re-initialize after 5 seconds
-        setTimeout(() => {
-          initWhatsApp().catch((err) => {
-            logger.error('Failed to re-initialize WhatsApp:', err);
-          });
-        }, 5000);
-      } else {
-        // Logged out — clear session so fresh QR is shown
-        logger.info('WhatsApp logged out. Clearing session directory.');
-        try {
-          fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-          fs.mkdirSync(AUTH_DIR, { recursive: true });
-        } catch (e) { /* ignore */ }
-        // Restart to generate new QR
-        setTimeout(() => {
-          initWhatsApp().catch((err) => {
-            logger.error('Failed to restart WhatsApp after logout:', err);
-          });
-        }, 3000);
-      }
-    }
-
-    if (connection === 'open') {
-      isConnected = true;
-      isConnecting = false;
-      qrCodeBase64 = null;
-      clientPhone = waSocket?.user?.id?.split(':')[0] ?? null;
-      logger.info(`WhatsApp connected. Phone: ${clientPhone}`);
-      broadcastSSE('status', { connected: true, phone: clientPhone });
-    }
-
-    if (connection === 'connecting') {
-      isConnecting = true;
-      broadcastSSE('status', { connected: false, phone: null, authenticating: true });
-    }
-  });
-
-  // ── Save credentials when updated ─────────────────────────────────────────
-  waSocket.ev.on('creds.update', saveCreds);
-}
-
-/**
- * Get the current QR code base64 image data URL
- */
-export function getWhatsAppQR(): string | null {
-  return qrCodeBase64;
-}
-
-/**
- * Get the current connection status of the WhatsApp client
- */
-export function getWhatsAppStatus(): { connected: boolean; phone: string | null } {
-  // Sync from live socket if possible
-  if (waSocket?.user?.id) {
-    isConnected = true;
-    isConnecting = false;
-    clientPhone = waSocket.user.id.split(':')[0];
-  }
-  return {
-    connected: isConnected,
-    phone: clientPhone,
-  };
-}
-
-/**
- * Actively synchronize WhatsApp connection status (lightweight, no Puppeteer IPC)
- */
-export async function syncWhatsAppStatus(): Promise<{ connected: boolean; phone: string | null }> {
-  return getWhatsAppStatus();
-}
-
-/**
- * Send a single WhatsApp message and log it to the database.
- */
-export async function sendWhatsAppMessage(
-  phone: string,
-  body: string,
-  studentId: string | null = null,
-  type: MessageType = MessageType.BROADCAST,
-): Promise<{ success: boolean; error?: string }> {
-  const now = new Date();
-  const jid = formatWhatsAppJID(phone);
-
-  // Sync from live socket — most reliable check
-  const actuallyConnected = !!(waSocket?.user?.id);
-  if (actuallyConnected) {
-    isConnected = true;
-    isConnecting = false;
-    clientPhone = waSocket!.user!.id.split(':')[0];
-  }
-
-  if (!actuallyConnected || !waSocket) {
-    const errMsg = 'WhatsApp client is not connected. Please pair QR first.';
-    logger.warn(`Cannot send message. Client not connected. Socket=${!!waSocket} user=${!!waSocket?.user?.id}. Recipient: ${phone}`);
-    await prisma.whatsAppMessage.create({
-      data: { studentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
-    });
-    return { success: false, error: errMsg };
-  }
-
-  try {
-    if (type === MessageType.REMINDER_1) {
-      // Attempt to send payment QR image as media
-      try {
-        const qrImagePath = path.resolve(process.cwd(), 'apps/server/src/assets/payment_qr.jpg');
-        if (fs.existsSync(qrImagePath)) {
-          const imageBuffer = fs.readFileSync(qrImagePath);
-          await waSocket.sendMessage(jid, {
-            image: imageBuffer,
-            caption: body,
-            mimetype: 'image/jpeg',
-          });
-        } else {
-          logger.warn(`Payment QR image not found at ${qrImagePath}. Sending text only.`);
-          await waSocket.sendMessage(jid, { text: body });
-        }
-      } catch (mediaErr) {
-        logger.error('Failed to send QR image media, falling back to text:', mediaErr);
-        await waSocket.sendMessage(jid, { text: body });
-      }
-    } else {
-      await waSocket.sendMessage(jid, { text: body });
-    }
-
-    await prisma.whatsAppMessage.create({
-      data: { studentId, phone, type, body, status: MessageStatus.SENT, sentAt: now, createdAt: now },
-    });
-    return { success: true };
-  } catch (err: any) {
-    const errMsg = err?.message || 'Unknown send error in WhatsApp client';
-    logger.error(`Failed to send WhatsApp message to ${phone}:`, err);
-    await prisma.whatsAppMessage.create({
-      data: { studentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
-    });
-    return { success: false, error: errMsg };
-  }
-}
-
-/**
- * Sends a payment confirmation message to a parent.
- */
-export async function sendConfirmation(studentId: string, paymentId: string): Promise<void> {
-  try {
-    const [student, payment, settingsList] = await Promise.all([
-      prisma.student.findUnique({ where: { id: studentId } }),
-      prisma.payment.findUnique({ where: { id: paymentId } }),
-      prisma.settings.findMany(),
-    ]);
-
-    if (!student || !payment) {
-      logger.error(`Skipping WhatsApp confirmation. Student ${studentId} or Payment ${paymentId} not found.`);
-      return;
-    }
-
-    const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
-    const businessName = settingsMap.get('businessName') || 'Sri Sai Travels';
-
-    const amountRupees = (payment.amount / 100).toFixed(0);
-    const monthsNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-    const monthName = monthsNames[payment.month - 1];
-
-    const body = formatTemplate(TEMPLATES[MessageType.CONFIRMATION], {
-      parentName: student.parentName,
-      amount: amountRupees,
-      month: `${monthName} ${payment.year}`,
-      receiptId: `PAY-${payment.year}-${String(payment.id).slice(-6).toUpperCase()}`,
-      businessName,
-    });
-
-    await sendWhatsAppMessage(student.whatsappNumber, body, student.id, MessageType.CONFIRMATION);
-  } catch (err) {
-    logger.error(`Error in sendConfirmation for student ${studentId}:`, err);
-  }
-}
-
-/**
- * Triggers batch broadcast with an enforced 3-second spacing rate limit.
- * Non-blocking — runs in background.
- */
 export function sendBroadcast(
   phones: string[],
   type: MessageType,
@@ -402,18 +451,16 @@ export function sendBroadcast(
   });
 }
 
-/**
- * Exposes internal WhatsApp state for debugging
- */
 export function getWhatsAppDebugInfo() {
+  const status = whatsappService.getStatus();
   return {
-    socketExists: !!waSocket,
-    user: waSocket?.user ? { id: waSocket.user.id, name: waSocket.user.name } : null,
-    isConnected,
-    isConnecting,
-    clientPhone,
-    qrLength: qrCodeBase64 ? qrCodeBase64.length : 0,
-    sessionFiles: fs.existsSync(AUTH_DIR) ? fs.readdirSync(AUTH_DIR) : [],
+    socketExists: !!(whatsappService.sock),
+    user: whatsappService.sock?.user ? { id: whatsappService.sock.user.id, name: whatsappService.sock.user.name } : null,
+    isConnected: status.connected,
+    isConnecting: whatsappService.getConnecting(),
+    clientPhone: status.phone,
+    qrLength: status.qrCode ? status.qrCode.length : 0,
+    sessionFiles: [],
     baileysLogs: baileysLogsBuffer,
   };
 }

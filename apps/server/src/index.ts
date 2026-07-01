@@ -20,6 +20,9 @@ import { authenticate } from './middleware/auth';
 import { initWhatsApp, getWhatsAppDebugInfo } from './services/whatsappService';
 import { initScheduler } from './services/schedulerService';
 import { logger } from './lib/logger';
+import { startKeepAlive } from './lib/keepAlive';
+import { prisma } from './lib/prisma';
+
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
@@ -150,6 +153,7 @@ async function bootstrap() {
       logger.info(`🚀 STMS Server running on http://localhost:${PORT}`);
       logger.info(`📋 API available at http://localhost:${PORT}/api/v1`);
       logger.info(`🌍 Environment: ${process.env.NODE_ENV ?? 'development'}`);
+      startKeepAlive();
     });
 
     // Initialize WhatsApp (non-blocking)
@@ -171,13 +175,15 @@ async function bootstrap() {
 }
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   logger.info('SIGTERM received. Shutting down gracefully...');
+  await prisma.$disconnect();
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   logger.info('SIGINT received. Shutting down gracefully...');
+  await prisma.$disconnect();
   process.exit(0);
 });
 
