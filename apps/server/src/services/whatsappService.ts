@@ -298,6 +298,7 @@ class WhatsAppService {
 
     const vars: Record<string, string> = {
       parentName: student.parentName,
+      studentName: student.name,
       amount: this.formatAmount(student.monthlyFee),
       month: this.formatMonth(month, year),
       upiId: getSetting('upiId'),
@@ -310,6 +311,12 @@ class WhatsAppService {
     const templates = TEMPLATES;
 
     let body = templates[type] ?? '';
+    // First, resolve the nested custom message if provided
+    if (extraVars?.message) {
+      body = body.replaceAll('{message}', extraVars.message);
+    }
+
+    // Resolve all other variables
     for (const [key, value] of Object.entries(vars)) {
       body = body.replaceAll(`{${key}}`, value);
     }

@@ -187,17 +187,20 @@ export default function WhatsAppPage() {
   // ─── Manual Trigger ───────────────────────────────────────────────────────────
   const [triggerSchool, setTriggerSchool] = React.useState('');
   const [triggerReminderType, setTriggerReminderType] = React.useState('REMINDER_1');
+  const [customText, setCustomText] = React.useState('');
 
   const triggerMutation = useMutation({
     mutationFn: async () => {
       const res = await api.post<{ data: { sentCount: number; failedCount: number } }>('/whatsapp/trigger-reminder', {
         school: triggerSchool,
         reminderType: triggerReminderType,
+        customText: customText.trim() || undefined,
       });
       return res.data.data;
     },
     onSuccess: (data) => {
       toast({ title: 'Trigger Complete', description: `Sent: ${data?.sentCount ?? 0}, Failed: ${data?.failedCount ?? 0}`, variant: 'success' as any });
+      setCustomText('');
     },
     onError: (err: any) => {
       toast({ title: 'Trigger Failed', description: err.response?.data?.error || 'Failed', variant: 'destructive' });
@@ -483,6 +486,21 @@ export default function WhatsAppPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            <div className="space-y-2 pt-2">
+              <Label className="text-xs font-bold text-muted-foreground uppercase">
+                Custom Broadcast Message (Optional)
+              </Label>
+              <textarea
+                rows={4}
+                value={customText}
+                onChange={(e) => setCustomText(e.target.value)}
+                placeholder="Enter custom broadcast message. If left blank, the selected Reminder Type template will be sent. Placeholders like {parentName} and {studentName} will be resolved automatically."
+                className="w-full p-3 text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/60"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Note: Custom broadcast messages are sent to <strong>all active students</strong> of the selected school. Standard reminders are sent only to unpaid students.
+              </p>
             </div>
           </CardContent>
           <CardFooter className="bg-muted/10 border-t py-4 flex justify-end">

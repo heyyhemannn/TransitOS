@@ -463,7 +463,8 @@ whatsappRouter.post(
 const triggerReminderSchema = z.object({
   school: z.string().optional(),
   schoolName: z.string().optional(),
-  reminderType: z.nativeEnum(MessageType),
+  reminderType: z.nativeEnum(MessageType).optional().default(MessageType.REMINDER_1),
+  customText: z.string().optional(),
 }).refine(data => data.school || data.schoolName, {
   message: "Either school or schoolName is required",
   path: ["school"]
@@ -480,7 +481,7 @@ whatsappRouter.post(
     try {
       const parsedBody = triggerReminderSchema.parse(req.body);
       const school = (parsedBody.school || parsedBody.schoolName) as string;
-      const { reminderType } = parsedBody;
+      const { reminderType, customText } = parsedBody;
 
       const status = getWhatsAppStatus();
       if (!status.connected) {
@@ -491,31 +492,52 @@ whatsappRouter.post(
         return;
       }
 
-      const students = await getUnpaidStudents([school]);
-      
-      // If it is REMINDER_3 or FINAL, mark overdue in DB
-      if (reminderType === MessageType.REMINDER_3 || reminderType === MessageType.FINAL) {
-        const now = new Date();
-        await prisma.feeSchedule.updateMany({
+      let studentIds: string[] = [];
+      let typeToSend = reminderType;
+      let extraVars: Record<string, string> | undefined = undefined;
+
+      if (customText) {
+        // Fetch all active students of this school
+        const activeStudents = await prisma.student.findMany({
           where: {
-            month: now.getMonth() + 1,
-            year: now.getFullYear(),
-            isPaid: false,
-            student: { school },
+            school,
+            status: StudentStatus.ACTIVE,
           },
-          data: { overdueAt: now },
+          select: { id: true },
         });
+        studentIds = activeStudents.map(s => s.id);
+        typeToSend = MessageType.BROADCAST;
+        extraVars = { message: customText };
+      } else {
+        // Standard reminder flow (only to unpaid students)
+        const unpaidStudents = await getUnpaidStudents([school]);
+        studentIds = unpaidStudents.map(s => s.id);
+
+        // If it is REMINDER_3 or FINAL, mark overdue in DB
+        if (reminderType === MessageType.REMINDER_3 || reminderType === MessageType.FINAL) {
+          const now = new Date();
+          await prisma.feeSchedule.updateMany({
+            where: {
+              month: now.getMonth() + 1,
+              year: now.getFullYear(),
+              isPaid: false,
+              student: { school },
+            },
+            data: { overdueAt: now },
+          });
+        }
       }
 
       const result = await whatsappService.broadcastToList(
-        students.map(s => s.id),
-        reminderType
+        studentIds,
+        typeToSend,
+        extraVars
       );
 
       res.json({
         success: true,
         data: {
-          scannedCount: students.length,
+          scannedCount: studentIds.length,
           sentCount: result.sent,
           failedCount: result.failed,
           sent: result.sent,
