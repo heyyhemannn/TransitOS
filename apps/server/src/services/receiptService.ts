@@ -36,6 +36,9 @@ function numberToWords(num: number): string {
   return convert(num) + ' Only';
 }
 
+// Base64-encoded TransitOS bus logo SVG (embedded to avoid inline SVG rendering issues in PDF)
+const LOGO_BASE64 = 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDg4IDg4Ij48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iODgiIGhlaWdodD0iODgiIHJ4PSIyMiIgZmlsbD0iI2ZmZmZmZiIgZmlsbC1vcGFjaXR5PSIwLjE1Ii8+PHJlY3QgeD0iMTIiIHk9IjEyIiB3aWR0aD0iNjQiIGhlaWdodD0iNDgiIHJ4PSI4IiBmaWxsPSIjMjU2M0VCIi8+PHJlY3QgeD0iMTkiIHk9IjE5IiB3aWR0aD0iNTAiIGhlaWdodD0iMjAiIHJ4PSI0IiBmaWxsPSIjMWE0NWIwIi8+PHJlY3QgeD0iMjIiIHk9IjIyIiB3aWR0aD0iMTMiIGhlaWdodD0iMTMiIHJ4PSIzIiBmaWxsPSIjQkZEQkZFIiBmaWxsLW9wYWNpdHk9IjAuOSIvPjxyZWN0IHg9IjM4IiB5PSIyMiIgd2lkdGg9IjEzIiBoZWlnaHQ9IjEzIiByeD0iMyIgZmlsbD0iI0JGREJGRSIgZmlsbC1vcGFjaXR5PSIwLjkiLz48cmVjdCB4PSI1NCIgeT0iMjIiIHdpZHRoPSIxMyIgaGVpZ2h0PSIxMyIgcng9IjMiIGZpbGw9IiNCRkRCRkUiIGZpbGwtb3BhY2l0eT0iMC45Ii8+PHJlY3QgeD0iMTIiIHk9IjM3IiB3aWR0aD0iNjQiIGhlaWdodD0iMi41IiByeD0iMS4yNSIgZmlsbD0iI0Y1OUUwQiIgZmlsbC1vcGFjaXR5PSIwLjkyIi8+PHJlY3QgeD0iOCIgeT0iMzQiIHdpZHRoPSI1IiBoZWlnaHQ9IjE4IiByeD0iMi41IiBmaWxsPSIjMTc0MUEwIi8+PHJlY3QgeD0iNzUiIHk9IjM0IiB3aWR0aD0iNSIgaGVpZ2h0PSIxOCIgcng9IjIuNSIgZmlsbD0iIzE3NDFBMCIvPjxyZWN0IHg9IjE5IiB5PSI0MyIgd2lkdGg9IjI0IiBoZWlnaHQ9IjEyIiByeD0iMyIgZmlsbD0iIzFhNDViMCIvPjxyZWN0IHg9IjQ3IiB5PSI0MyIgd2lkdGg9IjI0IiBoZWlnaHQ9IjEyIiByeD0iMyIgZmlsbD0iIzFhNDViMCIvPjxjaXJjbGUgY3g9IjI1IiBjeT0iNjIiIHI9IjcuNSIgZmlsbD0iIzA4MGQxYSIvPjxjaXJjbGUgY3g9IjI1IiBjeT0iNjIiIHI9IjUiIGZpbGw9IiMwZDE1MjgiIHN0cm9rZT0iIzI1NjNFQiIgc3Ryb2tlLXdpZHRoPSIxLjgiLz48Y2lyY2xlIGN4PSIyNSIgY3k9IjYyIiByPSIyIiBmaWxsPSIjMjU2M0VCIi8+PGNpcmNsZSBjeD0iNjMiIGN5PSI2MiIgcj0iNy41IiBmaWxsPSIjMDgwZDFhIi8+PGNpcmNsZSBjeD0iNjMiIGN5PSI2MiIgcj0iNSIgZmlsbD0iIzBkMTUyOCIgc3Ryb2tlPSIjMjU2M0VCIiBzdHJva2Utd2lkdGg9IjEuOCIvPjxjaXJjbGUgY3g9IjYzIiBjeT0iNjIiIHI9IjIiIGZpbGw9IiMyNTYzRUIiLz48L3N2Zz4K';
+
 function buildReceiptHTML(data: {
   receiptId: string;
   studentName: string;
@@ -63,6 +66,7 @@ function buildReceiptHTML(data: {
 <html>
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { 
@@ -126,6 +130,29 @@ function buildReceiptHTML(data: {
   }
   .paid-stamp .text { color: #15803D; font-weight: 700; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; display: flex; align-items: center; }
   .paid-stamp .date { color: #16A34A; font-size: 12px; margin-left: auto; font-weight: 600; }
+  /* CSS-only checkmark icon (avoids Unicode/font glyph issues in PDF rendering) */
+  .check-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    background: #16A34A;
+    border-radius: 50%;
+    position: relative;
+    vertical-align: middle;
+    margin-right: 6px;
+    flex-shrink: 0;
+  }
+  .check-icon::after {
+    content: '';
+    position: absolute;
+    left: 5.5px;
+    top: 2.5px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
   .body { padding: 24px 32px; }
   .section-title {
     font-size: 10px;
@@ -167,7 +194,7 @@ function buildReceiptHTML(data: {
   }
   .footer .thank-you { font-size: 13px; font-weight: 700; color: #334155; }
   .footer .sub { font-size: 11px; color: #64748B; margin-top: 4px; font-weight: 600; }
-  .footer .upi { font-size: 11px; color: #475569; margin-top: 6px; font-weight: 500; }
+  .footer .upi { font-size: 11px; color: #475569; margin-top: 6px; font-weight: 500; max-width: 100%; white-space: normal; overflow-wrap: anywhere; word-break: break-word; text-align: center; }
 
   @media print {
     html, body {
@@ -187,21 +214,7 @@ function buildReceiptHTML(data: {
 <div class="receipt">
   <div class="header">
     <div class="brand-container">
-      <svg class="logo" width="48" height="48" viewBox="296 18 88 88" xmlns="http://www.w3.org/2000/svg">
-        <rect x="296" y="18" width="88" height="88" rx="22" fill="#ffffff" fill-opacity="0.15" />
-        <rect x="308" y="30" width="64" height="48" rx="8" fill="#ffffff" />
-        <rect x="315" y="37" width="50" height="20" rx="4" fill="#2563EB" />
-        <rect x="318" y="40" width="13" height="13" rx="3" fill="#BFDBFE" />
-        <rect x="334" y="40" width="13" height="13" rx="3" fill="#BFDBFE" />
-        <rect x="350" y="40" width="13" height="13" rx="3" fill="#BFDBFE" />
-        <rect x="308" y="55" width="64" height="2.5" rx="1.25" fill="#F59E0B" />
-        <rect x="315" y="61" width="24" height="12" rx="3" fill="#2563EB" />
-        <rect x="343" y="61" width="24" height="12" rx="3" fill="#2563EB" />
-        <circle cx="321" cy="80" r="7.5" fill="#1e293b" />
-        <circle cx="321" cy="80" r="5" fill="#0d1528" stroke="#ffffff" stroke-width="1.8" />
-        <circle cx="359" cy="80" r="7.5" fill="#1e293b" />
-        <circle cx="359" cy="80" r="5" fill="#0d1528" stroke="#ffffff" stroke-width="1.8" />
-      </svg>
+      <img class="logo" src="data:image/svg+xml;base64,${LOGO_BASE64}" width="48" height="48" alt="TransitOS" />
       <div>
         <div class="brand">Transit<span>OS</span></div>
         <div class="subtitle">School Transport Receipt</div>
@@ -214,10 +227,8 @@ function buildReceiptHTML(data: {
   </div>
   <div class="paid-stamp">
     <div class="text">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; display: inline-block; vertical-align: middle;">
-        <polyline points="20 6 9 17 4 12"></polyline>
-      </svg>
-      Payment Confirmed
+      <span class="check-icon"></span>
+      PAYMENT CONFIRMED
     </div>
     <div class="date">${paidDate}</div>
   </div>
@@ -243,7 +254,7 @@ function buildReceiptHTML(data: {
     </div>
   </div>
   <div class="footer">
-    <div class="thank-you">Thank you for your prompt payment! 🙏</div>
+    <div class="thank-you">Thank you for your prompt payment!</div>
     <div class="sub">${data.businessName}</div>
     <div class="upi">UPI: ${data.upiId}</div>
   </div>
@@ -288,7 +299,7 @@ export class ReceiptService {
 
       // Generate PDF buffer
       const file = { content: html };
-      const options = { format: 'A4', printBackground: true };
+      const options = { format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } };
       const pdfBuffer = await htmlPdf.generatePdf(file, options);
 
       // Ensure the storage bucket exists
@@ -335,4 +346,3 @@ export const receiptService = new ReceiptService();
 export async function generateReceipt(paymentId: string): Promise<string | null> {
   return receiptService.generateReceipt(paymentId);
 }
-
