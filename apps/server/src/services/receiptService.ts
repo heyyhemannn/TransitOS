@@ -68,11 +68,11 @@ function buildReceiptHTML(data: {
   body { 
     font-family: 'Arial', sans-serif; 
     background: #f8fafc;
-    padding: 60px 40px;
+    padding: 30px 20px;
     color: #1a1a1a;
   }
   .receipt {
-    max-width: 680px;
+    max-width: 640px;
     margin: 0 auto;
     border: 1px solid #e2e8f0;
     border-radius: 16px;
@@ -83,7 +83,7 @@ function buildReceiptHTML(data: {
   .header {
     background: #2563EB;
     color: white;
-    padding: 32px 40px;
+    padding: 24px 32px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -91,90 +91,103 @@ function buildReceiptHTML(data: {
   .brand-container {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
   }
   .brand-container .logo {
     width: 48px;
     height: 48px;
+    display: block;
   }
   .header .brand { 
-    font-size: 28px; 
+    font-size: 26px; 
     font-weight: 800; 
     letter-spacing: -0.5px; 
-    line-height: 1;
+    line-height: 1.1;
   }
   .header .brand span { color: #93C5FD; }
   .header .subtitle {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 1.5px;
+    letter-spacing: 1px;
     opacity: 0.95;
-    margin-top: 4px;
+    margin-top: 2px;
     text-transform: uppercase;
   }
   .header .receipt-no { text-align: right; }
-  .header .receipt-no .label { font-size: 11px; opacity: 0.8; text-transform: uppercase; letter-spacing: 1px; }
-  .header .receipt-no .value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+  .header .receipt-no .label { font-size: 10px; opacity: 0.8; text-transform: uppercase; letter-spacing: 1px; }
+  .header .receipt-no .value { font-size: 16px; font-weight: 700; margin-top: 4px; }
   .paid-stamp {
     background: #DCFCE7;
     border-bottom: 2px solid #BBF7D0;
-    padding: 12px 40px;
+    padding: 10px 32px;
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .paid-stamp .dot { width: 10px; height: 10px; background: #16A34A; border-radius: 50%; }
-  .paid-stamp .text { color: #15803D; font-weight: 700; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
-  .paid-stamp .date { color: #16A34A; font-size: 13px; margin-left: auto; font-weight: 600; }
-  .body { padding: 36px 40px; }
+  .paid-stamp .text { color: #15803D; font-weight: 700; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; display: flex; align-items: center; }
+  .paid-stamp .date { color: #16A34A; font-size: 12px; margin-left: auto; font-weight: 600; }
+  .body { padding: 24px 32px; }
   .section-title {
-    font-size: 11px;
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 2px;
+    letter-spacing: 1.5px;
     color: #64748B;
-    margin-bottom: 12px;
-    margin-top: 24px;
+    margin-bottom: 8px;
+    margin-top: 18px;
     font-weight: 700;
   }
   .section-title:first-child { margin-top: 0; }
-  .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #F1F5F9; }
+  .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F5F9; }
   .row:last-child { border-bottom: none; }
-  .row .label { color: #64748B; font-size: 14px; }
-  .row .value { font-size: 14px; font-weight: 600; color: #0F172A; text-align: right; max-width: 60%; }
+  .row .label { color: #64748B; font-size: 13px; }
+  .row .value { font-size: 13px; font-weight: 600; color: #0F172A; text-align: right; max-width: 60%; }
   .amount-box {
     background: #EFF6FF;
     border: 1px solid #BFDBFE;
-    border-radius: 12px;
-    padding: 20px 24px;
-    margin: 28px 0 10px 0;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 20px 0 5px 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
-  .amount-box .label { color: #1D4ED8; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-  .amount-box .rupees { font-size: 32px; font-weight: 800; color: #1D4ED8; }
+  .amount-box .label { color: #1D4ED8; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .amount-box .rupees { font-size: 28px; font-weight: 800; color: #1D4ED8; }
   .amount-words {
-    font-size: 12px;
+    font-size: 11px;
     color: #64748B;
     font-style: italic;
-    margin-top: 6px;
+    margin-top: 4px;
   }
   .footer {
     background: #F8FAFC;
     border-top: 1px solid #E2E8F0;
-    padding: 24px 40px;
+    padding: 18px 32px;
     text-align: center;
   }
-  .footer .thank-you { font-size: 15px; font-weight: 700; color: #334155; }
-  .footer .sub { font-size: 12px; color: #64748B; margin-top: 6px; font-weight: 600; }
-  .footer .upi { font-size: 12px; color: #475569; margin-top: 8px; font-weight: 500; }
+  .footer .thank-you { font-size: 13px; font-weight: 700; color: #334155; }
+  .footer .sub { font-size: 11px; color: #64748B; margin-top: 4px; font-weight: 600; }
+  .footer .upi { font-size: 11px; color: #475569; margin-top: 6px; font-weight: 500; }
+
+  @media print {
+    html, body {
+      background: #ffffff;
+      padding: 20px;
+      height: 99%;
+    }
+    .receipt {
+      border: 1px solid #e2e8f0;
+      box-shadow: none;
+      page-break-inside: avoid;
+    }
+  }
 </style>
 </head>
 <body>
 <div class="receipt">
   <div class="header">
     <div class="brand-container">
-      <svg class="logo" viewBox="296 18 88 88" xmlns="http://www.w3.org/2000/svg">
+      <svg class="logo" width="48" height="48" viewBox="296 18 88 88" xmlns="http://www.w3.org/2000/svg">
         <rect x="296" y="18" width="88" height="88" rx="22" fill="#ffffff" fill-opacity="0.15" />
         <rect x="308" y="30" width="64" height="48" rx="8" fill="#ffffff" />
         <rect x="315" y="37" width="50" height="20" rx="4" fill="#2563EB" />
@@ -200,8 +213,12 @@ function buildReceiptHTML(data: {
     </div>
   </div>
   <div class="paid-stamp">
-    <div class="dot"></div>
-    <div class="text">Payment Confirmed</div>
+    <div class="text">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; display: inline-block; vertical-align: middle;">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+      Payment Confirmed
+    </div>
     <div class="date">${paidDate}</div>
   </div>
   <div class="body">
@@ -222,7 +239,7 @@ function buildReceiptHTML(data: {
         <div class="label">Amount Paid</div>
         <div class="amount-words">${amountWords}</div>
       </div>
-      <div class="rupees">₹${rupees.toLocaleString('en-IN')}</div>
+      <div class="rupees">&#8377;${rupees.toLocaleString('en-IN')}</div>
     </div>
   </div>
   <div class="footer">
@@ -249,7 +266,9 @@ export class ReceiptService {
       const getSetting = (key: string) => 
         settings.find(s => s.key === key)?.value ?? '';
 
-      const receiptId = `PAY-${payment.year}-${paymentId.slice(-6).toUpperCase()}`;
+      const shortMonth = new Date(payment.year, payment.month - 1)
+        .toLocaleString('en-US', { month: 'short' }).toUpperCase();
+      const receiptId = `PAY-${shortMonth}${payment.year}-${paymentId.slice(-6).toUpperCase()}`;
 
       const html = buildReceiptHTML({
         receiptId,
@@ -316,3 +335,4 @@ export const receiptService = new ReceiptService();
 export async function generateReceipt(paymentId: string): Promise<string | null> {
   return receiptService.generateReceipt(paymentId);
 }
+
