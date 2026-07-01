@@ -150,7 +150,7 @@ export default function StudentsPage() {
       // API expects amount in paise
       const payload = {
         ...values,
-        monthlyFee: Math.round(values.monthlyFee * 100),
+        monthlyFee: values.monthlyFee,
         routeId: values.routeId || null,
       };
       await api.post('/students', payload);
@@ -175,7 +175,7 @@ export default function StudentsPage() {
     mutationFn: async ({ id, values }: { id: string; values: StudentFormValues }) => {
       const payload = {
         ...values,
-        monthlyFee: Math.round(values.monthlyFee * 100),
+        monthlyFee: values.monthlyFee,
         routeId: values.routeId || null,
       };
       await api.put(`/students/${id}`, payload);

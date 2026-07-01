@@ -36,15 +36,45 @@ app.use(
   }),
 );
 
+const allowedOrigins = [
+  'https://transitos.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:3001',
+];
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow all origins dynamically (reflecting client origin for credentials support)
-      callback(null, true);
+      // Allow requests with no origin (mobile apps, curl, Postman)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS blocked: ${origin}`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+    ],
+    exposedHeaders: ['Content-Disposition'],
+    optionsSuccessStatus: 200, // Safari fix — 204 breaks Safari preflight
+  }),
+);
+
+// Handle OPTIONS preflight for ALL routes explicitly
+// This MUST be before all other route registrations
+app.options(
+  '*',
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   }),
 );
 

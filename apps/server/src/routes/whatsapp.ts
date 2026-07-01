@@ -69,6 +69,11 @@ whatsappRouter.get(
   '/events',
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
   (req: Request, res: Response): void => {
+    // Manual CORS for SSE — middleware doesn't cover streaming responses
+    res.setHeader('Access-Control-Allow-Origin', 'https://transitos.vercel.app');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+
     // SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
