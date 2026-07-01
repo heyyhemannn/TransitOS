@@ -11,6 +11,7 @@ import { matchPayment, importCSV, parseSMSText } from '../services/paymentEngine
 import { getSignedUrl } from '../lib/supabase';
 import { generateReceipt } from '../services/receiptService';
 import { sendConfirmation } from '../services/whatsappService';
+import { sendEmailNotification } from '../services/emailService';
 import { logger } from '../lib/logger';
 
 export const paymentsRouter = Router();
@@ -794,6 +795,27 @@ publicPaymentsRouter.post(
         .catch((err) => {
           logger.error(`Receipt generation failed in parent-confirm for paymentId ${result.id}:`, err);
         });
+
+      // Send email notification to heyyheman@gmail.com
+      const amountRupees = (targetAmount / 100).toFixed(2);
+      const emailSubject = `🔔 TransitOS Payment Confirmation: ${student.name}`;
+      const emailBody = `A parent has submitted a payment confirmation on the pay-confirm page.
+
+Details:
+- Student Name: ${student.name}
+- School: ${student.school}
+- Parent Name: ${student.parentName}
+- Parent Phone: ${phone}
+- Amount: ₹${amountRupees}
+- Month/Year: ${targetMonth}/${targetYear}
+- Transaction ID: ${transactionId}
+- Screenshot: ${screenshotStoragePath ? 'Uploaded (' + screenshotStoragePath + ')' : 'No Screenshot'}
+
+Payment has been auto-confirmed as PAID.`;
+      
+      sendEmailNotification('heyyheman@gmail.com', emailSubject, emailBody).catch((err) => {
+        logger.error('Failed to dispatch parent-confirm email notification:', err);
+      });
 
       res.json({
         success: true,
