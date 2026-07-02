@@ -814,6 +814,10 @@ publicPaymentsRouter.post(
       }
 
       // Send email notification to heyyheman@gmail.com
+      const settingsList = await prisma.settings.findMany();
+      const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
+      const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'https://transitos.vercel.app';
+
       const amountRupees = (targetAmount / 100).toFixed(2);
       const emailSubject = isAutoConfirm 
         ? `🔔 TransitOS Payment Confirmation: ${student.name}`
@@ -831,7 +835,8 @@ Details:
 - Transaction ID: ${transactionId}
 - Screenshot: Uploaded (${screenshotStoragePath})
 
-Payment has been auto-confirmed as PAID.`
+Payment has been auto-confirmed as PAID.
+You can view this payment here: ${webAppUrl}/payments`
         : `A parent has submitted a payment confirmation without a screenshot. This payment requires manual review.
 
 Details:
@@ -844,7 +849,7 @@ Details:
 - Transaction ID: ${transactionId}
 - Screenshot: No Screenshot
 
-Please review this transaction in the admin dashboard and mark it as PAID when verified.`;
+To review this transaction and change its status from PENDING to PAID (to automatically send the WhatsApp confirmation and receipt), please visit: ${webAppUrl}/payments`;
       
       sendEmailNotification('heyyheman@gmail.com', emailSubject, emailBody).catch((err) => {
         logger.error('Failed to dispatch parent-confirm email notification:', err);
