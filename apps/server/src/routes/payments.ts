@@ -184,7 +184,7 @@ paymentsRouter.post(
         return;
       }
 
-      const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const actualNow = new Date();
 
       // Create payment and update fee schedules
       const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -194,7 +194,7 @@ paymentsRouter.post(
             amount: amountPaise,
             month: body.month,
             year: body.year,
-            paidAt: nowIST,
+            paidAt: actualNow,
             transactionId: body.transactionId || null,
             method: body.method,
             status: PaymentStatus.PAID,
@@ -213,7 +213,7 @@ paymentsRouter.post(
           },
           update: {
             isPaid: true,
-            paidAt: nowIST,
+            paidAt: actualNow,
           },
           create: {
             studentId: body.studentId,
@@ -222,7 +222,7 @@ paymentsRouter.post(
             dueDate: new Date(Date.UTC(body.year, body.month - 1, 10, 4, 30, 0)),
             amount: amountPaise,
             isPaid: true,
-            paidAt: nowIST,
+            paidAt: actualNow,
           },
         });
 
@@ -462,7 +462,7 @@ paymentsRouter.patch(
       }
 
       const oldStatus = payment.status;
-      const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const actualNow = new Date();
 
       const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Update payment status
@@ -470,7 +470,7 @@ paymentsRouter.patch(
           where: { id },
           data: { 
             status,
-            paidAt: status === PaymentStatus.PAID ? nowIST : payment.paidAt,
+            paidAt: status === PaymentStatus.PAID ? actualNow : payment.paidAt,
           },
         });
 
@@ -486,7 +486,7 @@ paymentsRouter.patch(
             },
             update: {
               isPaid: true,
-              paidAt: nowIST,
+              paidAt: actualNow,
             },
             create: {
               studentId: payment.studentId,
@@ -495,7 +495,7 @@ paymentsRouter.patch(
               dueDate: new Date(Date.UTC(payment.year, payment.month - 1, 10, 4, 30, 0)),
               amount: payment.amount,
               isPaid: true,
-              paidAt: nowIST,
+              paidAt: actualNow,
             },
           });
         } else {
@@ -748,9 +748,10 @@ publicPaymentsRouter.post(
         ? `Parent screenshot saved. Storage: ${screenshotStoragePath}. Phone: ${phone}`
         : `No screenshot provided. Phone: ${phone}`;
 
+      const actualNow = new Date();
       const isAutoConfirm = screenshotStoragePath !== null;
       const paymentStatus = isAutoConfirm ? PaymentStatus.PAID : PaymentStatus.PENDING;
-      const paidAtValue = isAutoConfirm ? nowIST : null;
+      const paidAtValue = isAutoConfirm ? actualNow : null;
 
       // Create payment and update fee schedules
       const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -780,7 +781,7 @@ publicPaymentsRouter.post(
             },
             update: {
               isPaid: true,
-              paidAt: nowIST,
+              paidAt: actualNow,
             },
             create: {
               studentId: student.id,
@@ -789,7 +790,7 @@ publicPaymentsRouter.post(
               dueDate: new Date(Date.UTC(targetYear, targetMonth - 1, 10, 4, 30, 0)),
               amount: targetAmount,
               isPaid: true,
-              paidAt: nowIST,
+              paidAt: actualNow,
             },
           });
         }

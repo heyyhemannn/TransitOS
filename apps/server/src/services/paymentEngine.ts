@@ -127,6 +127,7 @@ export async function matchPayment(
   const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const month = nowIST.getMonth() + 1;
   const year = nowIST.getFullYear();
+  const actualNow = new Date();
 
   // Check if already paid
   const existingMonthPayment = await prisma.payment.findUnique({
@@ -153,7 +154,7 @@ export async function matchPayment(
         amount,
         month,
         year,
-        paidAt: nowIST,
+        paidAt: actualNow,
         transactionId,
         method: PaymentMethod.UPI,
         status: PaymentStatus.PAID,
@@ -172,7 +173,7 @@ export async function matchPayment(
       },
       update: {
         isPaid: true,
-        paidAt: nowIST,
+        paidAt: actualNow,
       },
       create: {
         studentId: matchedStudent.id,
@@ -181,7 +182,7 @@ export async function matchPayment(
         dueDate: new Date(Date.UTC(year, month - 1, 10, 4, 30, 0)),
         amount,
         isPaid: true,
-        paidAt: nowIST,
+        paidAt: actualNow,
       },
     });
 
