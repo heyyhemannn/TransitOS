@@ -7,6 +7,7 @@ export function startKeepAlive() {
   setInterval(() => {
     https.get(`${url}/health`, (res) => {
       console.log(`[KeepAlive] Ping status: ${res.statusCode}`);
+      res.resume(); // Consume response data to free memory/socket
     }).on('error', (err) => {
       console.error('[KeepAlive] Ping failed:', err.message);
     });

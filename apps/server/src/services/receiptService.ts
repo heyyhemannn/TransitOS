@@ -1,10 +1,9 @@
-import htmlPdf from 'html-pdf-node';
+import PDFDocument from 'pdfkit';
 import { prisma } from '../lib/prisma';
 import { supabase } from '../lib/supabase';
 
 function numberToWords(num: number): string {
   // Convert rupee amount to Indian English words
-  // e.g. 2500 → "Two Thousand Five Hundred Only"
   const ones = ['','One','Two','Three','Four','Five','Six','Seven',
     'Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen',
     'Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
@@ -36,233 +35,6 @@ function numberToWords(num: number): string {
   return convert(num) + ' Only';
 }
 
-// Base64-encoded TransitOS bus logo SVG (embedded to avoid inline SVG rendering issues in PDF)
-const LOGO_BASE64 = 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDg4IDg4Ij48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iODgiIGhlaWdodD0iODgiIHJ4PSIyMiIgZmlsbD0iI2ZmZmZmZiIgZmlsbC1vcGFjaXR5PSIwLjE1Ii8+PHJlY3QgeD0iMTIiIHk9IjEyIiB3aWR0aD0iNjQiIGhlaWdodD0iNDgiIHJ4PSI4IiBmaWxsPSIjMjU2M0VCIi8+PHJlY3QgeD0iMTkiIHk9IjE5IiB3aWR0aD0iNTAiIGhlaWdodD0iMjAiIHJ4PSI0IiBmaWxsPSIjMWE0NWIwIi8+PHJlY3QgeD0iMjIiIHk9IjIyIiB3aWR0aD0iMTMiIGhlaWdodD0iMTMiIHJ4PSIzIiBmaWxsPSIjQkZEQkZFIiBmaWxsLW9wYWNpdHk9IjAuOSIvPjxyZWN0IHg9IjM4IiB5PSIyMiIgd2lkdGg9IjEzIiBoZWlnaHQ9IjEzIiByeD0iMyIgZmlsbD0iI0JGREJGRSIgZmlsbC1vcGFjaXR5PSIwLjkiLz48cmVjdCB4PSI1NCIgeT0iMjIiIHdpZHRoPSIxMyIgaGVpZ2h0PSIxMyIgcng9IjMiIGZpbGw9IiNCRkRCRkUiIGZpbGwtb3BhY2l0eT0iMC45Ii8+PHJlY3QgeD0iMTIiIHk9IjM3IiB3aWR0aD0iNjQiIGhlaWdodD0iMi41IiByeD0iMS4yNSIgZmlsbD0iI0Y1OUUwQiIgZmlsbC1vcGFjaXR5PSIwLjkyIi8+PHJlY3QgeD0iOCIgeT0iMzQiIHdpZHRoPSI1IiBoZWlnaHQ9IjE4IiByeD0iMi41IiBmaWxsPSIjMTc0MUEwIi8+PHJlY3QgeD0iNzUiIHk9IjM0IiB3aWR0aD0iNSIgaGVpZ2h0PSIxOCIgcng9IjIuNSIgZmlsbD0iIzE3NDFBMCIvPjxyZWN0IHg9IjE5IiB5PSI0MyIgd2lkdGg9IjI0IiBoZWlnaHQ9IjEyIiByeD0iMyIgZmlsbD0iIzFhNDViMCIvPjxyZWN0IHg9IjQ3IiB5PSI0MyIgd2lkdGg9IjI0IiBoZWlnaHQ9IjEyIiByeD0iMyIgZmlsbD0iIzFhNDViMCIvPjxjaXJjbGUgY3g9IjI1IiBjeT0iNjIiIHI9IjcuNSIgZmlsbD0iIzA4MGQxYSIvPjxjaXJjbGUgY3g9IjI1IiBjeT0iNjIiIHI9IjUiIGZpbGw9IiMwZDE1MjgiIHN0cm9rZT0iIzI1NjNFQiIgc3Ryb2tlLXdpZHRoPSIxLjgiLz48Y2lyY2xlIGN4PSIyNSIgY3k9IjYyIiByPSIyIiBmaWxsPSIjMjU2M0VCIi8+PGNpcmNsZSBjeD0iNjMiIGN5PSI2MiIgcj0iNy41IiBmaWxsPSIjMDgwZDFhIi8+PGNpcmNsZSBjeD0iNjMiIGN5PSI2MiIgcj0iNSIgZmlsbD0iIzBkMTUyOCIgc3Ryb2tlPSIjMjU2M0VCIiBzdHJva2Utd2lkdGg9IjEuOCIvPjxjaXJjbGUgY3g9IjYzIiBjeT0iNjIiIHI9IjIiIGZpbGw9IiMyNTYzRUIiLz48L3N2Zz4K';
-
-function buildReceiptHTML(data: {
-  receiptId: string;
-  studentName: string;
-  school: string;
-  class: string;
-  parentName: string;
-  amount: number;        // in paise
-  month: number;
-  year: number;
-  method: string;
-  transactionId: string | null;
-  paidAt: Date;
-  businessName: string;
-  upiId: string;
-}): string {
-  const rupees = data.amount / 100;
-  const monthName = new Date(data.year, data.month - 1)
-    .toLocaleString('en-IN', { month: 'long', year: 'numeric' });
-  const paidDate = new Date(data.paidAt).toLocaleDateString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric'
-  });
-  const amountWords = numberToWords(rupees);
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { 
-    font-family: 'Arial', sans-serif; 
-    background: #f8fafc;
-    padding: 30px 20px;
-    color: #1a1a1a;
-  }
-  .receipt {
-    max-width: 640px;
-    margin: 0 auto;
-    border: 1px solid #e2e8f0;
-    border-radius: 16px;
-    overflow: hidden;
-    background: #ffffff;
-    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -4px rgba(0,0,0,0.05);
-  }
-  .header {
-    background: #2563EB;
-    color: white;
-    padding: 24px 32px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .brand-container {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-  .brand-container .logo {
-    width: 48px;
-    height: 48px;
-    display: block;
-  }
-  .header .brand { 
-    font-size: 26px; 
-    font-weight: 800; 
-    letter-spacing: -0.5px; 
-    line-height: 1.1;
-  }
-  .header .brand span { color: #93C5FD; }
-  .header .subtitle {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    opacity: 0.95;
-    margin-top: 2px;
-    text-transform: uppercase;
-  }
-  .header .receipt-no { text-align: right; }
-  .header .receipt-no .label { font-size: 10px; opacity: 0.8; text-transform: uppercase; letter-spacing: 1px; }
-  .header .receipt-no .value { font-size: 16px; font-weight: 700; margin-top: 4px; }
-  .paid-stamp {
-    background: #DCFCE7;
-    border-bottom: 2px solid #BBF7D0;
-    padding: 10px 32px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .paid-stamp .text { color: #15803D; font-weight: 700; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; display: flex; align-items: center; }
-  .paid-stamp .date { color: #16A34A; font-size: 12px; margin-left: auto; font-weight: 600; }
-  /* CSS-only checkmark icon (avoids Unicode/font glyph issues in PDF rendering) */
-  .check-icon {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    background: #16A34A;
-    border-radius: 50%;
-    position: relative;
-    vertical-align: middle;
-    margin-right: 6px;
-    flex-shrink: 0;
-  }
-  .check-icon::after {
-    content: '';
-    position: absolute;
-    left: 5.5px;
-    top: 2.5px;
-    width: 4px;
-    height: 8px;
-    border: solid white;
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-  }
-  .body { padding: 24px 32px; }
-  .section-title {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: #64748B;
-    margin-bottom: 8px;
-    margin-top: 18px;
-    font-weight: 700;
-  }
-  .section-title:first-child { margin-top: 0; }
-  .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F1F5F9; }
-  .row:last-child { border-bottom: none; }
-  .row .label { color: #64748B; font-size: 13px; }
-  .row .value { font-size: 13px; font-weight: 600; color: #0F172A; text-align: right; max-width: 60%; }
-  .amount-box {
-    background: #EFF6FF;
-    border: 1px solid #BFDBFE;
-    border-radius: 10px;
-    padding: 16px 20px;
-    margin: 20px 0 5px 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .amount-box .label { color: #1D4ED8; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-  .amount-box .rupees { font-size: 28px; font-weight: 800; color: #1D4ED8; }
-  .amount-words {
-    font-size: 11px;
-    color: #64748B;
-    font-style: italic;
-    margin-top: 4px;
-  }
-  .footer {
-    background: #F8FAFC;
-    border-top: 1px solid #E2E8F0;
-    padding: 18px 32px;
-    text-align: center;
-  }
-  .footer .thank-you { font-size: 13px; font-weight: 700; color: #334155; }
-  .footer .sub { font-size: 11px; color: #64748B; margin-top: 4px; font-weight: 600; }
-  .footer .upi { font-size: 11px; color: #475569; margin-top: 6px; font-weight: 500; max-width: 100%; white-space: normal; overflow-wrap: anywhere; word-break: break-word; text-align: center; }
-
-  @media print {
-    html, body {
-      background: #ffffff;
-      padding: 20px;
-      height: 99%;
-    }
-    .receipt {
-      border: 1px solid #e2e8f0;
-      box-shadow: none;
-      page-break-inside: avoid;
-    }
-  }
-</style>
-</head>
-<body>
-<div class="receipt">
-  <div class="header">
-    <div class="brand-container">
-      <img class="logo" src="data:image/svg+xml;base64,${LOGO_BASE64}" width="48" height="48" alt="TransitOS" />
-      <div>
-        <div class="brand">Transit<span>OS</span></div>
-        <div class="subtitle">School Transport Receipt</div>
-      </div>
-    </div>
-    <div class="receipt-no">
-      <div class="label">Receipt No</div>
-      <div class="value">${data.receiptId}</div>
-    </div>
-  </div>
-  <div class="paid-stamp">
-    <div class="text">
-      <span class="check-icon"></span>
-      PAYMENT CONFIRMED
-    </div>
-    <div class="date">${paidDate}</div>
-  </div>
-  <div class="body">
-    <div class="section-title">Student Details</div>
-    <div class="row"><span class="label">Student Name</span><span class="value">${data.studentName}</span></div>
-    <div class="row"><span class="label">School</span><span class="value">${data.school}</span></div>
-    <div class="row"><span class="label">Class</span><span class="value">${data.class}</span></div>
-    <div class="row"><span class="label">Parent Name</span><span class="value">${data.parentName}</span></div>
-
-    <div class="section-title">Payment Details</div>
-    <div class="row"><span class="label">Fee Month</span><span class="value">${monthName}</span></div>
-    <div class="row"><span class="label">Payment Method</span><span class="value">${data.method}</span></div>
-    ${data.transactionId ? `<div class="row"><span class="label">Transaction ID</span><span class="value">${data.transactionId}</span></div>` : ''}
-    <div class="row"><span class="label">Payment Date</span><span class="value">${paidDate}</span></div>
-
-    <div class="amount-box">
-      <div>
-        <div class="label">Amount Paid</div>
-        <div class="amount-words">${amountWords}</div>
-      </div>
-      <div class="rupees">&#8377;${rupees.toLocaleString('en-IN')}</div>
-    </div>
-  </div>
-  <div class="footer">
-    <div class="thank-you">Thank you for your prompt payment!</div>
-    <div class="sub">${data.businessName}</div>
-    <div class="upi">UPI: ${data.upiId}</div>
-  </div>
-</div>
-</body>
-</html>`;
-}
-
 export class ReceiptService {
 
   async generateReceipt(paymentId: string): Promise<string | null> {
@@ -281,26 +53,182 @@ export class ReceiptService {
         .toLocaleString('en-US', { month: 'short' }).toUpperCase();
       const receiptId = `PAY-${shortMonth}${payment.year}-${paymentId.slice(-6).toUpperCase()}`;
 
-      const html = buildReceiptHTML({
-        receiptId,
-        studentName: payment.student.name,
-        school: payment.student.school,
-        class: payment.student.class,
-        parentName: payment.student.parentName,
-        amount: payment.amount,
-        month: payment.month,
-        year: payment.year,
-        method: payment.method,
-        transactionId: payment.transactionId,
-        paidAt: payment.paidAt ?? new Date(),
-        businessName: getSetting('businessName') || "Hemanth's Transport Services",
-        upiId: getSetting('upiId') || '',
-      });
+      const rupees = payment.amount / 100;
+      const monthName = new Date(payment.year, payment.month - 1)
+        .toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+      const paidDate = payment.paidAt
+        ? new Date(payment.paidAt).toLocaleDateString('en-IN', {
+            day: '2-digit', month: 'short', year: 'numeric'
+          })
+        : new Date().toLocaleDateString('en-IN', {
+            day: '2-digit', month: 'short', year: 'numeric'
+          });
+      const amountWords = numberToWords(rupees);
+      const businessName = getSetting('businessName') || "TransitOS Transport Services";
+      const upiId = getSetting('upiId') || '';
 
-      // Generate PDF buffer
-      const file = { content: html };
-      const options = { format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } };
-      const pdfBuffer = await htmlPdf.generatePdf(file, options);
+      const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+        const doc = new PDFDocument({ size: 'A4', margin: 40 });
+        const chunks: Buffer[] = [];
+        doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', (err) => reject(err));
+
+        // ─── HEADER ───
+        // Blue rounded box
+        doc.roundedRect(40, 40, 515, 80, 8).fill('#2563EB');
+
+        // Brand name: Transit (white) + OS (light blue)
+        doc.fillColor('white')
+           .fontSize(26)
+           .font('Helvetica-Bold')
+           .text('Transit', 65, 60, { continued: true })
+           .fillColor('#93C5FD')
+           .text('OS');
+
+        // Subtitle
+        doc.fillColor('#93C5FD')
+           .fontSize(10)
+           .font('Helvetica-Bold')
+           .text('SCHOOL TRANSPORT RECEIPT', 65, 92);
+
+        // Receipt No
+        doc.fillColor('#E2E8F0')
+           .fontSize(10)
+           .font('Helvetica')
+           .text('RECEIPT NO', 380, 60, { width: 150, align: 'right' });
+
+        doc.fillColor('white')
+           .fontSize(14)
+           .font('Helvetica-Bold')
+           .text(receiptId, 380, 74, { width: 150, align: 'right' });
+
+        // ─── CONFIRMATION STAMP BANNER ───
+        // Green banner
+        doc.roundedRect(40, 130, 515, 30, 4).fill('#DCFCE7');
+
+        // Border bottom (using a thin rect)
+        doc.rect(40, 159, 515, 1).fill('#BBF7D0');
+
+        // Green check circle
+        doc.circle(60, 145, 8).fill('#16A34A');
+        
+        // Checkmark path in the circle
+        doc.strokeColor('white')
+           .lineWidth(2)
+           .moveTo(56, 145)
+           .lineTo(59, 148)
+           .lineTo(64, 142)
+           .stroke();
+
+        // Banner Text
+        doc.fillColor('#15803D')
+           .fontSize(10)
+           .font('Helvetica-Bold')
+           .text('PAYMENT CONFIRMED', 78, 140);
+
+        doc.fillColor('#16A34A')
+           .fontSize(10)
+           .font('Helvetica-Bold')
+           .text(paidDate, 380, 140, { width: 150, align: 'right' });
+
+        // ─── STUDENT DETAILS ───
+        doc.fillColor('#64748B')
+           .fontSize(9)
+           .font('Helvetica-Bold')
+           .text('STUDENT DETAILS', 40, 180);
+
+        // Separator line
+        doc.rect(40, 194, 515, 1).fill('#E2E8F0');
+
+        let currentY = 205;
+        const drawRow = (label: string, value: string) => {
+          doc.fillColor('#64748B')
+             .fontSize(10)
+             .font('Helvetica')
+             .text(label, 40, currentY);
+
+          doc.fillColor('#0F172A')
+             .fontSize(10)
+             .font('Helvetica-Bold')
+             .text(value, 200, currentY, { width: 355, align: 'right' });
+
+          doc.rect(40, currentY + 16, 515, 0.5).fill('#F1F5F9');
+          currentY += 24;
+        };
+
+        drawRow('Student Name', payment.student.name);
+        drawRow('School', payment.student.school);
+        drawRow('Class', payment.student.class);
+        drawRow('Parent Name', payment.student.parentName);
+
+        // ─── PAYMENT DETAILS ───
+        currentY += 10;
+        doc.fillColor('#64748B')
+           .fontSize(9)
+           .font('Helvetica-Bold')
+           .text('PAYMENT DETAILS', 40, currentY);
+
+        doc.rect(40, currentY + 14, 515, 1).fill('#E2E8F0');
+        currentY += 25;
+
+        drawRow('Fee Month', monthName);
+        drawRow('Payment Method', payment.method);
+        if (payment.transactionId) {
+          drawRow('Transaction ID', payment.transactionId);
+        }
+        drawRow('Payment Date', paidDate);
+
+        // ─── AMOUNT BOX ───
+        currentY += 10;
+        // Background rounded rect
+        doc.roundedRect(40, currentY, 515, 60, 6).fill('#EFF6FF');
+        // Border
+        doc.roundedRect(40, currentY, 515, 60, 6).lineWidth(1).strokeColor('#BFDBFE').stroke();
+
+        // Label on left
+        doc.fillColor('#1D4ED8')
+           .fontSize(10)
+           .font('Helvetica-Bold')
+           .text('AMOUNT PAID', 55, currentY + 15);
+
+        // Words below label
+        doc.fillColor('#64748B')
+           .fontSize(9)
+           .font('Helvetica-Oblique')
+           .text(amountWords, 55, currentY + 32, { width: 320 });
+
+        // Amount on right
+        const formattedAmount = `INR ${rupees.toLocaleString('en-IN')}`;
+        doc.fillColor('#1D4ED8')
+           .fontSize(22)
+           .font('Helvetica-Bold')
+           .text(formattedAmount, 380, currentY + 18, { width: 160, align: 'right' });
+
+        // ─── FOOTER ───
+        currentY += 90;
+        // Separator line
+        doc.rect(40, currentY, 515, 1).fill('#E2E8F0');
+
+        doc.fillColor('#334155')
+           .fontSize(11)
+           .font('Helvetica-Bold')
+           .text('Thank you for your prompt payment!', 40, currentY + 15, { width: 515, align: 'center' });
+
+        doc.fillColor('#64748B')
+           .fontSize(9)
+           .font('Helvetica-Bold')
+           .text(businessName, 40, currentY + 32, { width: 515, align: 'center' });
+
+        if (upiId) {
+          doc.fillColor('#475569')
+             .fontSize(9)
+             .font('Helvetica')
+             .text(`UPI: ${upiId}`, 40, currentY + 47, { width: 515, align: 'center' });
+        }
+
+        doc.end();
+      });
 
       // Ensure the storage bucket exists
       const { error: bucketError } = await supabase.storage.createBucket('receipts', { public: true });
