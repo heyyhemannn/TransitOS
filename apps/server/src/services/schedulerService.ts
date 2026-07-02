@@ -194,6 +194,7 @@ export function initScheduler() {
           month: today.getMonth() + 1,
           year: today.getFullYear(),
           isPaid: false,
+          student: { status: 'ACTIVE' },
         },
       });
 
@@ -222,7 +223,14 @@ export function initScheduler() {
 
       const [paid, pending, total] = await Promise.all([
         prisma.payment.count({ where: { month, year, status: 'PAID' } }),
-        prisma.feeSchedule.count({ where: { month, year, isPaid: false } }),
+        prisma.feeSchedule.count({
+          where: {
+            month,
+            year,
+            isPaid: false,
+            student: { status: 'ACTIVE' },
+          },
+        }),
         prisma.payment.aggregate({
           where: { month, year, status: 'PAID' },
           _sum: { amount: true },

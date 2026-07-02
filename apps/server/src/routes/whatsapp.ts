@@ -521,7 +521,7 @@ whatsappRouter.post(
               month: now.getMonth() + 1,
               year: now.getFullYear(),
               isPaid: false,
-              student: { school },
+              student: { school, status: StudentStatus.ACTIVE },
             },
             data: { overdueAt: now },
           });

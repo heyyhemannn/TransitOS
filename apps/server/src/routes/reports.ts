@@ -28,7 +28,7 @@ reportsRouter.get(
       const month = req.query.month ? parseInt(req.query.month as string) : (currentMonth === 6 && currentYear === 2026 ? 7 : currentMonth);
       const year = req.query.year ? parseInt(req.query.year as string) : currentYear;
 
-      const [totalStudents, activeRoutes, feeSchedules] = await Promise.all([
+      const [totalStudents, activeRoutes, feeSchedules, payments] = await Promise.all([
         prisma.student.count({
           where: { status: StudentStatus.ACTIVE },
         }),
@@ -36,14 +36,26 @@ reportsRouter.get(
           where: { isActive: true },
         }),
         prisma.feeSchedule.findMany({
-          where: { month, year },
+          where: {
+            month,
+            year,
+            student: { status: StudentStatus.ACTIVE },
+          },
           select: { amount: true, isPaid: true },
+        }),
+        prisma.payment.findMany({
+          where: {
+            month,
+            year,
+            status: PaymentStatus.PAID,
+          },
+          select: { amount: true },
         }),
       ]);
 
-      const expectedRevenue = feeSchedules.reduce((sum, s) => sum + s.amount, 0);
-      const receivedRevenue = feeSchedules.filter(s => s.isPaid).reduce((sum, s) => sum + s.amount, 0);
+      const receivedRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
       const pendingRevenue = feeSchedules.filter(s => !s.isPaid).reduce((sum, s) => sum + s.amount, 0);
+      const expectedRevenue = receivedRevenue + pendingRevenue;
       const whatsapp = getWhatsAppStatus();
 
       res.json({
