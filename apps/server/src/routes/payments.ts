@@ -748,6 +748,10 @@ publicPaymentsRouter.post(
         ? `Parent screenshot saved. Storage: ${screenshotStoragePath}. Phone: ${phone}`
         : `No screenshot provided. Phone: ${phone}`;
 
+      const isAutoConfirm = screenshotStoragePath !== null;
+      const paymentStatus = isAutoConfirm ? PaymentStatus.PAID : PaymentStatus.PENDING;
+      const paidAtValue = isAutoConfirm ? nowIST : null;
+
       // Create payment and update fee schedules
       const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const payment = await tx.payment.create({
@@ -756,58 +760,65 @@ publicPaymentsRouter.post(
             amount: targetAmount,
             month: targetMonth,
             year: targetYear,
-            paidAt: nowIST,
+            paidAt: paidAtValue,
             transactionId,
             method: 'UPI',
-            status: PaymentStatus.PAID,
+            status: paymentStatus,
             remarks,
             screenshotUrl: screenshotStoragePath,
           },
         });
 
-        await tx.feeSchedule.upsert({
-          where: {
-            studentId_month_year: {
+        if (isAutoConfirm) {
+          await tx.feeSchedule.upsert({
+            where: {
+              studentId_month_year: {
+                studentId: student.id,
+                month: targetMonth,
+                year: targetYear,
+              },
+            },
+            update: {
+              isPaid: true,
+              paidAt: nowIST,
+            },
+            create: {
               studentId: student.id,
               month: targetMonth,
               year: targetYear,
+              dueDate: new Date(Date.UTC(targetYear, targetMonth - 1, 10, 4, 30, 0)),
+              amount: targetAmount,
+              isPaid: true,
+              paidAt: nowIST,
             },
-          },
-          update: {
-            isPaid: true,
-            paidAt: nowIST,
-          },
-          create: {
-            studentId: student.id,
-            month: targetMonth,
-            year: targetYear,
-            dueDate: new Date(Date.UTC(targetYear, targetMonth - 1, 10, 4, 30, 0)),
-            amount: targetAmount,
-            isPaid: true,
-            paidAt: nowIST,
-          },
-        });
+          });
+        }
 
         return payment;
       });
 
-      logger.info(`Parent submit (Auto-Confirmed): Student=${student.name}, TxID=${transactionId}, Screenshot=${screenshotStoragePath ? 'YES' : 'NO'}`);
+      logger.info(`Parent submit (Auto-Confirmed=${isAutoConfirm}): Student=${student.name}, TxID=${transactionId}, Screenshot=${screenshotStoragePath ? 'YES' : 'NO'}`);
 
-      // Trigger non-blocking async receipt generation & WhatsApp confirmation (including PDF receipt document)
-      generateReceipt(result.id)
-        .then(() => {
-          sendConfirmation(student.id, result.id).catch((err) => {
-            logger.error(`WhatsApp confirmation failed in parent-confirm for studentId ${student.id}:`, err);
+      // Trigger non-blocking async receipt generation & WhatsApp confirmation (including PDF receipt document) only if auto-confirmed
+      if (isAutoConfirm) {
+        generateReceipt(result.id)
+          .then(() => {
+            sendConfirmation(student.id, result.id).catch((err) => {
+              logger.error(`WhatsApp confirmation failed in parent-confirm for studentId ${student.id}:`, err);
+            });
+          })
+          .catch((err) => {
+            logger.error(`Receipt generation failed in parent-confirm for paymentId ${result.id}:`, err);
           });
-        })
-        .catch((err) => {
-          logger.error(`Receipt generation failed in parent-confirm for paymentId ${result.id}:`, err);
-        });
+      }
 
       // Send email notification to heyyheman@gmail.com
       const amountRupees = (targetAmount / 100).toFixed(2);
-      const emailSubject = `🔔 TransitOS Payment Confirmation: ${student.name}`;
-      const emailBody = `A parent has submitted a payment confirmation on the pay-confirm page.
+      const emailSubject = isAutoConfirm 
+        ? `🔔 TransitOS Payment Confirmation: ${student.name}`
+        : `⏳ TransitOS Payment Review Required: ${student.name}`;
+      const emailBody = isAutoConfirm
+        ? `A parent has submitted a payment confirmation on the pay-confirm page.
 
 Details:
 - Student Name: ${student.name}
@@ -817,9 +828,22 @@ Details:
 - Amount: ₹${amountRupees}
 - Month/Year: ${targetMonth}/${targetYear}
 - Transaction ID: ${transactionId}
-- Screenshot: ${screenshotStoragePath ? 'Uploaded (' + screenshotStoragePath + ')' : 'No Screenshot'}
+- Screenshot: Uploaded (${screenshotStoragePath})
 
-Payment has been auto-confirmed as PAID.`;
+Payment has been auto-confirmed as PAID.`
+        : `A parent has submitted a payment confirmation without a screenshot. This payment requires manual review.
+
+Details:
+- Student Name: ${student.name}
+- School: ${student.school}
+- Parent Name: ${student.parentName}
+- Parent Phone: ${phone}
+- Amount: ₹${amountRupees}
+- Month/Year: ${targetMonth}/${targetYear}
+- Transaction ID: ${transactionId}
+- Screenshot: No Screenshot
+
+Please review this transaction in the admin dashboard and mark it as PAID when verified.`;
       
       sendEmailNotification('heyyheman@gmail.com', emailSubject, emailBody).catch((err) => {
         logger.error('Failed to dispatch parent-confirm email notification:', err);
@@ -828,10 +852,13 @@ Payment has been auto-confirmed as PAID.`;
       res.json({
         success: true,
         data: {
-          message: 'Payment confirmed successfully! Receipt and confirmation have been sent to your WhatsApp.',
+          message: isAutoConfirm 
+            ? 'Payment confirmed successfully! Receipt and confirmation have been sent to your WhatsApp.'
+            : 'Payment details submitted for review. Once verified by the administrator, a receipt will be sent to your WhatsApp.',
           studentName: student.name,
           amount: targetAmount,
           screenshotUploaded: screenshotStoragePath !== null,
+          status: result.status,
         },
       });
     } catch (error) {

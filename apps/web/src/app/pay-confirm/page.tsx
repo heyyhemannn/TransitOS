@@ -33,7 +33,7 @@ export default function ParentConfirmPage() {
   const [screenshotBase64, setScreenshotBase64] = React.useState<string | null>(null);
   const [screenshotName, setScreenshotName] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [successInfo, setSuccessInfo] = React.useState<{ studentName: string; amount: number } | null>(null);
+  const [successInfo, setSuccessInfo] = React.useState<{ studentName: string; amount: number; status: string } | null>(null);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
 
   const form = useForm<ParentConfirmValues>({
@@ -75,6 +75,7 @@ export default function ParentConfirmPage() {
       setSuccessInfo({
         studentName: res.data.data.studentName,
         amount: res.data.data.amount,
+        status: res.data.data.status,
       });
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'An error occurred during submission. Verify your parameters.');
@@ -83,23 +84,37 @@ export default function ParentConfirmPage() {
     }
   };
 
+  const isPaid = successInfo?.status === 'PAID';
+
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Background blobs for premium glassmorphic depth */}
       <div className="absolute top-[-10%] left-[-10%] h-[40%] w-[40%] rounded-full bg-blue-500/10 blur-[120px]" />
-      <div className="absolute bottom-[-10%] right-[-10%] h-[40%] w-[40%] rounded-full bg-emerald-500/10 blur-[120px]" />
+      <div className={`absolute bottom-[-10%] right-[-10%] h-[40%] w-[40%] rounded-full blur-[120px] transition-colors duration-500 ${
+        successInfo ? (isPaid ? 'bg-emerald-500/10' : 'bg-amber-500/10') : 'bg-emerald-500/10'
+      }`} />
 
       {successInfo ? (
-        <Card className="w-full max-w-md border-emerald-500/20 bg-slate-900/60 backdrop-blur-xl shadow-2xl text-center p-6 space-y-6">
+        <Card className={`w-full max-w-md bg-slate-900/60 backdrop-blur-xl shadow-2xl text-center p-6 space-y-6 transition-all duration-500 border ${
+          isPaid ? 'border-emerald-500/20' : 'border-amber-500/20'
+        }`}>
           <div className="flex justify-center">
-            <div className="h-16 w-16 bg-emerald-500/15 text-emerald-400 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/10 animate-bounce">
+            <div className={`h-16 w-16 rounded-full flex items-center justify-center shadow-lg transition-all duration-500 animate-bounce ${
+              isPaid 
+                ? 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10' 
+                : 'bg-amber-500/15 text-amber-400 shadow-amber-500/10'
+            }`}>
               <CheckCircle2 className="h-10 w-10" />
             </div>
           </div>
           <div className="space-y-2">
-            <CardTitle className="text-xl font-bold text-slate-100">Confirmation Submitted!</CardTitle>
+            <CardTitle className="text-xl font-bold text-slate-100">
+              {isPaid ? 'Payment Confirmed!' : 'Submission Received!'}
+            </CardTitle>
             <CardDescription className="text-slate-400">
-              Your payment has been successfully recorded for review.
+              {isPaid 
+                ? 'Your payment has been successfully recorded and processed.' 
+                : 'Your confirmation details have been submitted for review.'}
             </CardDescription>
           </div>
 
@@ -114,14 +129,28 @@ export default function ParentConfirmPage() {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-400">Status:</span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                SUCCESS / PAID
-              </span>
+              {isPaid ? (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  SUCCESS / PAID
+                </span>
+              ) : (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  PENDING REVIEW
+                </span>
+              )}
             </div>
           </div>
 
           <p className="text-xs text-slate-500 leading-relaxed">
-            The administrator of <strong>Hemanth's Transport Services</strong> will verify this reference and release your official PDF receipt on WhatsApp shortly.
+            {isPaid ? (
+              <>
+                Your official receipt has been sent to your WhatsApp. Thank you for your prompt payment!
+              </>
+            ) : (
+              <>
+                Since no screenshot was uploaded, the administrator of <strong>Hemanth's Transport Services</strong> will verify this reference and release your official PDF receipt on WhatsApp once verified.
+              </>
+            )}
           </p>
         </Card>
       ) : (
