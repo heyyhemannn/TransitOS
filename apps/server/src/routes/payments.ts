@@ -406,18 +406,26 @@ paymentsRouter.get(
         return;
       }
 
-      // If it's already a full HTTP URL (e.g. from CDN/mock), return it directly
-      if (receiptUrl.startsWith('http://') || receiptUrl.startsWith('https://')) {
+      // If it's a Supabase public URL for the receipts bucket, extract the relative storage path
+      // to sign it and return a working URL.
+      let storagePath = receiptUrl;
+      const publicPrefix = '/storage/v1/object/public/receipts/';
+      if (receiptUrl.includes(publicPrefix)) {
+        storagePath = receiptUrl.split(publicPrefix)[1];
+      }
+
+      // If it starts with http/https and is not a public receipts bucket URL, return it directly
+      if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) {
         res.json({
           success: true,
-          data: receiptUrl,
+          data: storagePath,
         });
         return;
       }
 
       // Generate a signed URL for private Supabase Storage paths
       const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
-      const signedUrl = await getSignedUrl(bucket, receiptUrl, 3600); // 1 hour expiry
+      const signedUrl = await getSignedUrl(bucket, storagePath, 3600); // 1 hour expiry
 
       res.json({
         success: true,

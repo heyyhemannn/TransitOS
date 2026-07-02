@@ -374,13 +374,85 @@ class WhatsAppService {
     if (payment.receiptUrl && this.sock && this.sock.user?.id) {
       try {
         const jid = this.formatPhone(payment.student.whatsappNumber);
-        await this.sock.sendMessage(jid, {
-          document: { url: payment.receiptUrl },
-          mimetype: 'application/pdf',
-          fileName: `${receiptId}.pdf`,
-          caption: `🧾 Receipt for ${payment.student.name} - ${this.formatMonth(payment.month, payment.year)}`,
-        });
-        logger.info(`Successfully sent receipt PDF to parent WhatsApp: ${payment.student.whatsappNumber}`);
+        
+        let pdfBuffer: Buffer | null = null;
+        const storagePath = `receipts/${payment.student.id}/${receiptId}.pdf`;
+        
+        try {
+          const { supabase } = await import('../lib/supabase');
+          logger.info(`Attempting to download receipt PDF from Supabase storage: ${storagePath}`);
+          const { data, error } = await supabase.storage
+            .from('receipts')
+            .download(storagePath);
+            
+          if (error) {
+            logger.error(`Supabase storage download error for path ${storagePath}:`, error);
+          } else if (data) {
+            const arrayBuffer = await data.arrayBuffer();
+            pdfBuffer = Buffer.from(arrayBuffer);
+            logger.info(`Successfully downloaded receipt PDF from Supabase storage (${pdfBuffer.length} bytes).`);
+          }
+        } catch (storageErr) {
+          logger.error(`Failed to download receipt from storage via Supabase client:`, storageErr);
+        }
+
+        // Fallback: If download failed but we have a public URL, try to fetch it via HTTP
+        if (!pdfBuffer && payment.receiptUrl.startsWith('http')) {
+          try {
+            logger.info(`Falling back to HTTP fetch for receipt URL: ${payment.receiptUrl}`);
+            const response = await fetch(payment.receiptUrl);
+            if (response.ok) {
+              const arrayBuffer = await response.arrayBuffer();
+              pdfBuffer = Buffer.from(arrayBuffer);
+              logger.info(`Successfully fetched receipt PDF via HTTP (${pdfBuffer.length} bytes).`);
+            } else {
+              logger.error(`HTTP fetch failed with status: ${response.status} ${response.statusText}`);
+            }
+          } catch (fetchErr) {
+            logger.error('Failed to fetch receipt PDF via HTTP fallback:', fetchErr);
+          }
+        }
+
+        if (pdfBuffer) {
+          await this.sock.sendMessage(jid, {
+            document: pdfBuffer,
+            mimetype: 'application/pdf',
+            fileName: `${receiptId}.pdf`,
+            caption: `🧾 Receipt for ${payment.student.name} - ${this.formatMonth(payment.month, payment.year)}`,
+          });
+          logger.info(`Successfully sent receipt PDF to parent WhatsApp: ${payment.student.whatsappNumber}`);
+        } else {
+          logger.warn(`Could not retrieve PDF buffer for payment ${paymentId}. Sending URL text fallback.`);
+          
+          // Generate a signed URL since the bucket might be private
+          let docUrl = payment.receiptUrl;
+          if (!docUrl.startsWith('http')) {
+            try {
+              const { getSignedUrl } = await import('../lib/supabase');
+              const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
+              docUrl = await getSignedUrl(bucket, payment.receiptUrl, 604800); // 7 days expiry
+            } catch (signErr) {
+              logger.error('Failed to sign URL for fallback text:', signErr);
+            }
+          } else {
+            // Even if it starts with http, if it's a supabase public URL and the bucket is private, we should sign it
+            const publicPrefix = '/storage/v1/object/public/receipts/';
+            if (docUrl.includes(publicPrefix)) {
+              try {
+                const pathInBucket = docUrl.split(publicPrefix)[1];
+                const { getSignedUrl } = await import('../lib/supabase');
+                const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
+                docUrl = await getSignedUrl(bucket, pathInBucket, 604800); // 7 days expiry
+              } catch (signErr) {
+                logger.error('Failed to sign public URL for fallback text:', signErr);
+              }
+            }
+          }
+          
+          await this.sock.sendMessage(jid, {
+            text: `🧾 Receipt for ${payment.student.name} - ${this.formatMonth(payment.month, payment.year)}\nYou can view and download your receipt here: ${docUrl}`
+          });
+        }
       } catch (pdfErr) {
         logger.error(`Failed to send receipt PDF document via WhatsApp for payment ${paymentId}:`, pdfErr);
       }
