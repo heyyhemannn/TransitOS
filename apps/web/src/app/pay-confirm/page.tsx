@@ -192,9 +192,14 @@ export default function ParentConfirmPage() {
 
               {/* Screenshot File Upload */}
               <div className="space-y-2">
-                <Label className="text-xs font-bold text-slate-400">
-                  Upload Payment Screenshot
-                </Label>
+                <div className="flex justify-between items-center">
+                  <Label className="text-xs font-bold text-slate-400">
+                    Upload Payment Screenshot
+                  </Label>
+                  <span className="text-[9px] font-bold text-slate-400 bg-slate-800/40 border border-slate-800/80 px-2 py-0.5 rounded-full">
+                    OPTIONAL
+                  </span>
+                </div>
                 <div className="border border-dashed border-slate-800 hover:border-slate-700 bg-slate-950/40 rounded-xl p-4 flex flex-col items-center justify-center relative cursor-pointer group transition duration-300">
                   <Input
                     type="file"
