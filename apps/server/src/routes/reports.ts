@@ -30,7 +30,10 @@ reportsRouter.get(
 
       const [totalStudents, activeRoutes, feeSchedules, payments] = await Promise.all([
         prisma.student.count({
-          where: { status: StudentStatus.ACTIVE },
+          where: { 
+            status: StudentStatus.ACTIVE,
+            routeId: { not: null },
+          },
         }),
         prisma.route.count({
           where: { isActive: true },
