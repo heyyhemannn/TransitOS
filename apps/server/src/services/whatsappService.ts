@@ -595,8 +595,7 @@ We have successfully received and verified your transport fee payment of ₹{amo
 Your official PDF receipt is attached below. Thank you once again for your prompt payment and continued support!
 
 Best regards,
-{businessName}
-${PAY_CONFIRM_URL}`,
+{businessName}`,
 
   [MessageType.EMERGENCY]: `⚠️ Notice from {businessName}:
 

@@ -461,87 +461,110 @@ paymentsRouter.patch(
         return;
       }
 
+      const baseTxId = payment.transactionId && payment.transactionId.includes('_')
+        ? payment.transactionId.split('_')[0]
+        : null;
+
+      const relatedPayments = baseTxId
+        ? await prisma.payment.findMany({
+            where: {
+              status: PaymentStatus.PENDING,
+              transactionId: {
+                startsWith: `${baseTxId}_`
+              }
+            },
+            include: { student: true }
+          })
+        : [];
+
+      const paymentsToUpdate = [payment, ...relatedPayments.filter(p => p.id !== payment.id)];
       const oldStatus = payment.status;
       const actualNow = new Date();
 
       const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // Update payment status
-        const pay = await tx.payment.update({
-          where: { id },
-          data: { 
-            status,
-            paidAt: status === PaymentStatus.PAID ? actualNow : payment.paidAt,
-          },
-        });
-
-        // Update corresponding fee schedule
-        if (status === PaymentStatus.PAID) {
-          await tx.feeSchedule.upsert({
-            where: {
-              studentId_month_year: {
-                studentId: payment.studentId,
-                month: payment.month,
-                year: payment.year,
-              },
-            },
-            update: {
-              isPaid: true,
-              paidAt: actualNow,
-            },
-            create: {
-              studentId: payment.studentId,
-              month: payment.month,
-              year: payment.year,
-              dueDate: new Date(Date.UTC(payment.year, payment.month - 1, 10, 4, 30, 0)),
-              amount: payment.amount,
-              isPaid: true,
-              paidAt: actualNow,
+        const results = [];
+        for (const pay of paymentsToUpdate) {
+          const oldPayStatus = pay.status;
+          const updatedPay = await tx.payment.update({
+            where: { id: pay.id },
+            data: { 
+              status,
+              paidAt: status === PaymentStatus.PAID ? actualNow : pay.paidAt,
             },
           });
-        } else {
-          // Revert to unpaid if changing status from PAID to something else
-          if (oldStatus === PaymentStatus.PAID) {
-            await tx.feeSchedule.updateMany({
+          results.push(updatedPay);
+
+          // Update corresponding fee schedule
+          if (status === PaymentStatus.PAID) {
+            await tx.feeSchedule.upsert({
               where: {
-                studentId: payment.studentId,
-                month: payment.month,
-                year: payment.year,
+                studentId_month_year: {
+                  studentId: pay.studentId,
+                  month: pay.month,
+                  year: pay.year,
+                },
               },
-              data: {
-                isPaid: false,
-                paidAt: null,
+              update: {
+                isPaid: true,
+                paidAt: actualNow,
+              },
+              create: {
+                studentId: pay.studentId,
+                month: pay.month,
+                year: pay.year,
+                dueDate: new Date(Date.UTC(pay.year, pay.month - 1, 10, 4, 30, 0)),
+                amount: pay.amount,
+                isPaid: true,
+                paidAt: actualNow,
               },
             });
+          } else {
+            // Revert to unpaid if changing status from PAID to something else
+            if (oldPayStatus === PaymentStatus.PAID) {
+              await tx.feeSchedule.updateMany({
+                where: {
+                  studentId: pay.studentId,
+                  month: pay.month,
+                  year: pay.year,
+                },
+                data: {
+                  isPaid: false,
+                  paidAt: null,
+                },
+              });
+            }
           }
         }
-
-        return pay;
+        return results;
       });
 
-      // Write Audit Log
-      await createAuditLog(req.user?.id || null, 'UPDATE_PAYMENT_STATUS', 'Payment', id, {
-        studentId: payment.studentId,
-        oldStatus,
-        newStatus: status,
-      });
+      // Write Audit Log for each
+      for (const pay of paymentsToUpdate) {
+        await createAuditLog(req.user?.id || null, 'UPDATE_PAYMENT_STATUS', 'Payment', pay.id, {
+          studentId: pay.studentId,
+          oldStatus: pay.status,
+          newStatus: status,
+        });
+      }
 
       // If status changed to PAID (success), trigger side effects: receipt generation and WhatsApp confirmation dispatch
       if (status === PaymentStatus.PAID) {
-        // Run receipt generation first so it updates payment.receiptUrl
-        generateReceipt(id)
-          .then(() => {
-            sendConfirmation(payment.studentId, id).catch((err) => {
-              logger.error(`WhatsApp confirmation failed after status change for studentId ${payment.studentId}:`, err);
+        for (const pay of paymentsToUpdate) {
+          generateReceipt(pay.id)
+            .then(() => {
+              sendConfirmation(pay.studentId, pay.id).catch((err) => {
+                logger.error(`WhatsApp confirmation failed after status change for studentId ${pay.studentId}:`, err);
+              });
+            })
+            .catch((err) => {
+              logger.error(`Receipt generation failed after status change for paymentId ${pay.id}:`, err);
             });
-          })
-          .catch((err) => {
-            logger.error(`Receipt generation failed after status change for paymentId ${id}:`, err);
-          });
+        }
       }
 
       res.json({
         success: true,
-        data: updated,
+        data: updated.find(p => p.id === id) || updated[0],
       });
     } catch (error) {
       next(error);
@@ -678,7 +701,7 @@ publicPaymentsRouter.post(
 
       const formattedPhone = phone.trim();
 
-      const student = await prisma.student.findFirst({
+      const activeStudents = await prisma.student.findMany({
         where: {
           status: 'ACTIVE',
           OR: [
@@ -689,7 +712,7 @@ publicPaymentsRouter.post(
         },
       });
 
-      if (!student) {
+      if (activeStudents.length === 0) {
         res.status(404).json({
           success: false,
           error: 'No active student found for this mobile number. Please check and try again.',
@@ -697,7 +720,14 @@ publicPaymentsRouter.post(
         return;
       }
 
-      const existingPayment = await prisma.payment.findUnique({ where: { transactionId } });
+      const existingPayment = await prisma.payment.findFirst({
+        where: {
+          OR: [
+            { transactionId },
+            { transactionId: { startsWith: `${transactionId}_` } },
+          ],
+        },
+      });
       if (existingPayment) {
         res.status(400).json({
           success: false,
@@ -710,14 +740,35 @@ publicPaymentsRouter.post(
       const currentMonth = nowIST.getMonth() + 1;
       const currentYear = nowIST.getFullYear();
 
-      const schedule = await prisma.feeSchedule.findFirst({
-        where: { studentId: student.id, isPaid: false },
-        orderBy: [{ year: 'asc' }, { month: 'asc' }],
-      });
+      const isCollective = activeStudents.length > 1;
 
-      const targetMonth = schedule ? schedule.month : currentMonth;
-      const targetYear = schedule ? schedule.year : currentYear;
-      const targetAmount = schedule ? schedule.amount : student.monthlyFee;
+      interface PaymentInfo {
+        student: typeof activeStudents[0];
+        targetMonth: number;
+        targetYear: number;
+        targetAmount: number;
+      }
+      const paymentsToCreate: PaymentInfo[] = [];
+      let totalCollectiveAmount = 0;
+
+      for (const s of activeStudents) {
+        const schedule = await prisma.feeSchedule.findFirst({
+          where: { studentId: s.id, isPaid: false },
+          orderBy: [{ year: 'asc' }, { month: 'asc' }],
+        });
+
+        const targetMonth = schedule ? schedule.month : currentMonth;
+        const targetYear = schedule ? schedule.year : currentYear;
+        const targetAmount = schedule ? schedule.amount : s.monthlyFee;
+        totalCollectiveAmount += targetAmount;
+
+        paymentsToCreate.push({
+          student: s,
+          targetMonth,
+          targetYear,
+          targetAmount,
+        });
+      }
 
       let screenshotStoragePath: string | null = null;
       if (screenshotBase64) {
@@ -749,67 +800,75 @@ publicPaymentsRouter.post(
         : `No screenshot provided. Phone: ${phone}`;
 
       const actualNow = new Date();
-      const isAutoConfirm = screenshotStoragePath !== null;
+      const isAutoConfirm = !isCollective && screenshotStoragePath !== null;
       const paymentStatus = isAutoConfirm ? PaymentStatus.PAID : PaymentStatus.PENDING;
       const paidAtValue = isAutoConfirm ? actualNow : null;
 
       // Create payment and update fee schedules
-      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        const payment = await tx.payment.create({
-          data: {
-            studentId: student.id,
-            amount: targetAmount,
-            month: targetMonth,
-            year: targetYear,
-            paidAt: paidAtValue,
-            transactionId,
-            method: 'UPI',
-            status: paymentStatus,
-            remarks,
-            screenshotUrl: screenshotStoragePath,
-          },
-        });
+      const createdPayments = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const results = [];
+        for (let i = 0; i < paymentsToCreate.length; i++) {
+          const item = paymentsToCreate[i];
+          const dbTxId = isCollective ? `${transactionId}_${item.student.id}` : transactionId;
 
-        if (isAutoConfirm) {
-          await tx.feeSchedule.upsert({
-            where: {
-              studentId_month_year: {
-                studentId: student.id,
-                month: targetMonth,
-                year: targetYear,
-              },
-            },
-            update: {
-              isPaid: true,
-              paidAt: actualNow,
-            },
-            create: {
-              studentId: student.id,
-              month: targetMonth,
-              year: targetYear,
-              dueDate: new Date(Date.UTC(targetYear, targetMonth - 1, 10, 4, 30, 0)),
-              amount: targetAmount,
-              isPaid: true,
-              paidAt: actualNow,
+          const payment = await tx.payment.create({
+            data: {
+              studentId: item.student.id,
+              amount: item.targetAmount,
+              month: item.targetMonth,
+              year: item.targetYear,
+              paidAt: paidAtValue,
+              transactionId: dbTxId,
+              method: 'UPI',
+              status: paymentStatus,
+              remarks: remarks + (isCollective ? ` (Collective payment ${i + 1}/${paymentsToCreate.length})` : ''),
+              screenshotUrl: screenshotStoragePath,
             },
           });
-        }
+          results.push(payment);
 
-        return payment;
+          if (isAutoConfirm) {
+            await tx.feeSchedule.upsert({
+              where: {
+                studentId_month_year: {
+                  studentId: item.student.id,
+                  month: item.targetMonth,
+                  year: item.targetYear,
+                },
+              },
+              update: {
+                isPaid: true,
+                paidAt: actualNow,
+              },
+              create: {
+                studentId: item.student.id,
+                month: item.targetMonth,
+                year: item.targetYear,
+                dueDate: new Date(Date.UTC(item.targetYear, item.targetMonth - 1, 10, 4, 30, 0)),
+                amount: item.targetAmount,
+                isPaid: true,
+                paidAt: actualNow,
+              },
+            });
+          }
+        }
+        return results;
       });
 
-      logger.info(`Parent submit (Auto-Confirmed=${isAutoConfirm}): Student=${student.name}, TxID=${transactionId}, Screenshot=${screenshotStoragePath ? 'YES' : 'NO'}`);
+      const firstResult = createdPayments[0];
+
+      logger.info(`Parent submit (Auto-Confirmed=${isAutoConfirm}): Student=${isCollective ? activeStudents.map(s => s.name).join(' & ') : activeStudents[0].name}, TxID=${transactionId}, Screenshot=${screenshotStoragePath ? 'YES' : 'NO'}`);
 
       // Trigger non-blocking async receipt generation & WhatsApp confirmation (including PDF receipt document) only if auto-confirmed
       if (isAutoConfirm) {
-        generateReceipt(result.id)
+        generateReceipt(firstResult.id)
           .then(() => {
-            sendConfirmation(student.id, result.id).catch((err) => {
-              logger.error(`WhatsApp confirmation failed in parent-confirm for studentId ${student.id}:`, err);
+            sendConfirmation(activeStudents[0].id, firstResult.id).catch((err) => {
+              logger.error(`WhatsApp confirmation failed in parent-confirm for studentId ${activeStudents[0].id}:`, err);
             });
           })
           .catch((err) => {
-            logger.error(`Receipt generation failed in parent-confirm for paymentId ${result.id}:`, err);
+            logger.error(`Receipt generation failed in parent-confirm for paymentId ${firstResult.id}:`, err);
           });
       }
 
@@ -818,39 +877,62 @@ publicPaymentsRouter.post(
       const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
       const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'https://transitos.vercel.app';
 
-      const amountRupees = (targetAmount / 100).toFixed(2);
       const emailSubject = isAutoConfirm 
-        ? `🔔 TransitOS Payment Confirmation: ${student.name}`
-        : `⏳ TransitOS Payment Review Required: ${student.name}`;
-      const emailBody = isAutoConfirm
-        ? `A parent has submitted a payment confirmation on the pay-confirm page.
+        ? `🔔 TransitOS Payment Confirmation: ${activeStudents[0].name}`
+        : isCollective
+        ? `⏳ TransitOS Collective Payment Review Required: ${activeStudents.map(s => s.name).join(' & ')}`
+        : `⏳ TransitOS Payment Review Required: ${activeStudents[0].name}`;
+
+      let emailBody = '';
+      if (isCollective) {
+        const studentDetails = paymentsToCreate.map((item, index) => {
+          return `${index + 1}. ${item.student.name} (${item.student.school}) - ₹${(item.targetAmount / 100).toFixed(2)} [Month/Year: ${item.targetMonth}/${item.targetYear}]`;
+        }).join('\n');
+
+        emailBody = `A parent has submitted a collective payment confirmation for multiple siblings. This requires manual review.
 
 Details:
-- Student Name: ${student.name}
-- School: ${student.school}
-- Parent Name: ${student.parentName}
+- Students:
+${studentDetails}
+- Parent Name: ${activeStudents[0].parentName}
+- Parent Phone: ${phone}
+- Total Amount: ₹${(totalCollectiveAmount / 100).toFixed(2)}
+- Transaction ID: ${transactionId}
+- Screenshot: ${screenshotStoragePath ? `Uploaded (${screenshotStoragePath})` : 'No Screenshot'}
+
+To review these transactions and change their status from PENDING to PAID (which will automatically send WhatsApp receipts and confirmations for all siblings), please visit: ${webAppUrl}/payments`;
+      } else {
+        const amountRupees = (paymentsToCreate[0].targetAmount / 100).toFixed(2);
+        emailBody = isAutoConfirm
+          ? `A parent has submitted a payment confirmation on the pay-confirm page.
+
+Details:
+- Student Name: ${activeStudents[0].name}
+- School: ${activeStudents[0].school}
+- Parent Name: ${activeStudents[0].parentName}
 - Parent Phone: ${phone}
 - Amount: ₹${amountRupees}
-- Month/Year: ${targetMonth}/${targetYear}
+- Month/Year: ${paymentsToCreate[0].targetMonth}/${paymentsToCreate[0].targetYear}
 - Transaction ID: ${transactionId}
 - Screenshot: Uploaded (${screenshotStoragePath})
 
 Payment has been auto-confirmed as PAID.
 You can view this payment here: ${webAppUrl}/payments`
-        : `A parent has submitted a payment confirmation without a screenshot. This payment requires manual review.
+          : `A parent has submitted a payment confirmation without a screenshot. This payment requires manual review.
 
 Details:
-- Student Name: ${student.name}
-- School: ${student.school}
-- Parent Name: ${student.parentName}
+- Student Name: ${activeStudents[0].name}
+- School: ${activeStudents[0].school}
+- Parent Name: ${activeStudents[0].parentName}
 - Parent Phone: ${phone}
 - Amount: ₹${amountRupees}
-- Month/Year: ${targetMonth}/${targetYear}
+- Month/Year: ${paymentsToCreate[0].targetMonth}/${paymentsToCreate[0].targetYear}
 - Transaction ID: ${transactionId}
 - Screenshot: No Screenshot
 
 To review this transaction and change its status from PENDING to PAID (to automatically send the WhatsApp confirmation and receipt), please visit: ${webAppUrl}/payments`;
-      
+      }
+
       sendEmailNotification('heyyheman@gmail.com', emailSubject, emailBody).catch((err) => {
         logger.error('Failed to dispatch parent-confirm email notification:', err);
       });
@@ -860,11 +942,13 @@ To review this transaction and change its status from PENDING to PAID (to automa
         data: {
           message: isAutoConfirm 
             ? 'Payment confirmed successfully! Receipt and confirmation have been sent to your WhatsApp.'
+            : isCollective
+            ? 'Collective payment details submitted for review. Once verified by the administrator, receipts will be sent to your WhatsApp.'
             : 'Payment details submitted for review. Once verified by the administrator, a receipt will be sent to your WhatsApp.',
-          studentName: student.name,
-          amount: targetAmount,
+          studentName: isCollective ? activeStudents.map(s => s.name).join(' & ') : activeStudents[0].name,
+          amount: isCollective ? totalCollectiveAmount : paymentsToCreate[0].targetAmount,
           screenshotUploaded: screenshotStoragePath !== null,
-          status: result.status,
+          status: firstResult.status,
         },
       });
     } catch (error) {

@@ -175,7 +175,7 @@ export class ReceiptService {
         drawRow('Fee Month', monthName);
         drawRow('Payment Method', payment.method);
         if (payment.transactionId) {
-          drawRow('Transaction ID', payment.transactionId);
+          drawRow('Transaction ID', payment.transactionId.split('_')[0]);
         }
         drawRow('Payment Date', paidDate);
 

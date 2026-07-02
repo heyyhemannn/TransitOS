@@ -417,7 +417,7 @@ export default function PaymentsPage() {
                 <div className="flex justify-between items-start gap-4">
                   <div>
                     <span className="font-mono text-[10px] font-bold text-foreground bg-accent/50 px-2 py-0.5 rounded">
-                      {payment.transactionId || 'MANUAL-ENTRY'}
+                      {payment.transactionId ? payment.transactionId.split('_')[0] : 'MANUAL-ENTRY'}
                     </span>
                     <p className="text-[10px] text-muted-foreground mt-1">
                       {new Date(payment.paidAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
@@ -566,7 +566,7 @@ export default function PaymentsPage() {
                   <tr key={payment.id} className="border-b hover:bg-muted/10 transition-colors">
                     <td className="p-4">
                       <span className="font-mono text-xs font-bold text-foreground bg-accent/30 px-2 py-1 rounded">
-                        {payment.transactionId || 'MANUAL-ENTRY'}
+                        {payment.transactionId ? payment.transactionId.split('_')[0] : 'MANUAL-ENTRY'}
                       </span>
                       <div className="text-[10px] text-muted-foreground mt-1">
                         {new Date(payment.paidAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}

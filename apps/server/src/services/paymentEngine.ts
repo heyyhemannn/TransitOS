@@ -58,8 +58,13 @@ export async function matchPayment(
 
   // 1. Duplicate check
   if (transactionId) {
-    const existingPayment = await prisma.payment.findUnique({
-      where: { transactionId },
+    const existingPayment = await prisma.payment.findFirst({
+      where: {
+        OR: [
+          { transactionId },
+          { transactionId: { startsWith: `${transactionId}_` } },
+        ],
+      },
     });
     if (existingPayment) {
       logger.info(`Duplicate payment transaction skipped: ${transactionId}`);
