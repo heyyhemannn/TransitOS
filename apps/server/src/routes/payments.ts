@@ -247,26 +247,29 @@ paymentsRouter.post(
         }
       });
 
-      // After transaction completes, run side effects (outside transaction to avoid blocking DB)
-      for (const item of results) {
-        // Write Audit Log
-        createAuditLog(req.user?.id || null, 'MANUAL_PAYMENT', 'Payment', item.payment.id, {
-          studentId: item.payment.studentId,
-          amount: item.payment.amount,
-          month: body.month,
-          year: body.year,
-        }).catch((err) => logger.error('Audit log failed:', err));
+      // After transaction completes, run side effects (outside transaction to avoid blocking DB) sequentially
+      (async () => {
+        for (const item of results) {
+          // Write Audit Log
+          await createAuditLog(req.user?.id || null, 'MANUAL_PAYMENT', 'Payment', item.payment.id, {
+            studentId: item.payment.studentId,
+            amount: item.payment.amount,
+            month: body.month,
+            year: body.year,
+          }).catch((err) => logger.error('Audit log failed:', err));
 
-        // Generate receipt
-        generateReceipt(item.payment.id).catch((err) => {
-          logger.error(`Receipt generation failed in manual entry for paymentId ${item.payment.id}:`, err);
-        });
-
-        // Send WhatsApp confirmation
-        sendConfirmation(item.student.id, item.payment.id).catch((err) => {
-          logger.error(`WhatsApp confirmation failed in manual entry for studentId ${item.student.id}:`, err);
-        });
-      }
+          try {
+            logger.info(`Processing receipt generation for manual entry paymentId ${item.payment.id}...`);
+            await generateReceipt(item.payment.id);
+            logger.info(`Sending WhatsApp confirmation for manual entry studentId ${item.student.id}...`);
+            await sendConfirmation(item.student.id, item.payment.id);
+            // Delay between sibling confirmations
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } catch (err) {
+            logger.error(`Failed to process confirmation side effects for manual payment ${item.payment.id}:`, err);
+          }
+        }
+      })().catch(err => logger.error('Error in sequential manual confirmation dispatch:', err));
 
       res.status(201).json({
         success: true,
@@ -569,19 +572,22 @@ paymentsRouter.patch(
         });
       }
 
-      // If status changed to PAID (success), trigger side effects: receipt generation and WhatsApp confirmation dispatch
+      // If status changed to PAID (success), trigger side effects: receipt generation and WhatsApp confirmation dispatch sequentially
       if (status === PaymentStatus.PAID) {
-        for (const pay of paymentsToUpdate) {
-          generateReceipt(pay.id)
-            .then(() => {
-              sendConfirmation(pay.studentId, pay.id).catch((err) => {
-                logger.error(`WhatsApp confirmation failed after status change for studentId ${pay.studentId}:`, err);
-              });
-            })
-            .catch((err) => {
-              logger.error(`Receipt generation failed after status change for paymentId ${pay.id}:`, err);
-            });
-        }
+        (async () => {
+          for (const pay of paymentsToUpdate) {
+            try {
+              logger.info(`Processing receipt generation for payment status update ${pay.id}...`);
+              await generateReceipt(pay.id);
+              logger.info(`Sending WhatsApp confirmation for payment status update studentId ${pay.studentId}...`);
+              await sendConfirmation(pay.studentId, pay.id);
+              // Delay between sibling confirmations
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            } catch (err) {
+              logger.error(`Failed to process confirmation side effects for status change payment ${pay.id}:`, err);
+            }
+          }
+        })().catch(err => logger.error('Error in sequential status change confirmation dispatch:', err));
       }
 
       res.json({
@@ -881,17 +887,21 @@ publicPaymentsRouter.post(
 
       logger.info(`Parent submit (Auto-Confirmed=${isAutoConfirm}): Student=${isCollective ? activeStudents.map(s => s.name).join(' & ') : activeStudents[0].name}, TxID=${transactionId}, Screenshot=${screenshotStoragePath ? 'YES' : 'NO'}`);
 
-      // Trigger non-blocking async receipt generation & WhatsApp confirmation (including PDF receipt document) only if auto-confirmed
+      // Trigger non-blocking async receipt generation & WhatsApp confirmation (including PDF receipt document) sequentially if auto-confirmed
       if (isAutoConfirm) {
-        generateReceipt(firstResult.id)
-          .then(() => {
-            sendConfirmation(activeStudents[0].id, firstResult.id).catch((err) => {
-              logger.error(`WhatsApp confirmation failed in parent-confirm for studentId ${activeStudents[0].id}:`, err);
-            });
-          })
-          .catch((err) => {
-            logger.error(`Receipt generation failed in parent-confirm for paymentId ${firstResult.id}:`, err);
-          });
+        (async () => {
+          for (const pay of createdPayments) {
+            try {
+              logger.info(`Processing receipt generation for parent-confirm payment ${pay.id}...`);
+              await generateReceipt(pay.id);
+              logger.info(`Sending WhatsApp confirmation for parent-confirm studentId ${pay.studentId}...`);
+              await sendConfirmation(pay.studentId, pay.id);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            } catch (err) {
+              logger.error(`Failed to process confirmation side effects for parent-confirm payment ${pay.id}:`, err);
+            }
+          }
+        })().catch(err => logger.error('Error in sequential parent-confirm confirmation dispatch:', err));
       }
 
       // Send email notification to heyyheman@gmail.com
