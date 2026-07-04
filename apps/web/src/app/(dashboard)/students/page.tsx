@@ -897,12 +897,51 @@ export default function StudentsPage() {
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-muted-foreground">Message Preview</label>
               <div className="p-3 border rounded-lg bg-slate-50 dark:bg-slate-900/50 text-[11px] text-muted-foreground whitespace-pre-line leading-relaxed font-mono">
-                {selectedReminderType === 'REMINDER_1' && `Dear Parent,
-Just a friendly reminder that the transport fee of ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} is now due. Please process payment at your earliest convenience. Thank you!`}
-                {selectedReminderType === 'REMINDER_2' && `Dear Parent,
-🔔 Reminder: Transport fee of ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} is still pending. Please ignore if already paid. Thank you!`}
-                {selectedReminderType === 'REMINDER_3' && `Dear Parent,
-⚠️ Final Reminder: Transport fee ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} is still unpaid. Please clear this immediately to ensure uninterrupted service. Thank you!`}
+                {selectedReminderType === 'REMINDER_1' && `Dear ${reminderTargetStudent?.parentName || 'Parent'},
+
+Transport fee of ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} for [Month] is now due.
+
+🏫 Student: ${reminderTargetStudent?.name || 'Student Name'}
+
+To pay and confirm:
+1️⃣ Pay ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} via UPI to: [UPI ID]
+2️⃣ Confirm your payment here:
+👉 https://transitos.vercel.app/pay-confirm
+
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+
+Thank you,
+[Business Name]`}
+                {selectedReminderType === 'REMINDER_2' && `Dear ${reminderTargetStudent?.parentName || 'Parent'},
+
+🔔 Reminder: Transport fee of ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} for [Month] is still pending.
+
+🏫 Student: ${reminderTargetStudent?.name || 'Student Name'}
+
+To pay and confirm:
+1️⃣ Pay ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} via UPI to: [UPI ID]
+2️⃣ Confirm your payment here:
+👉 https://transitos.vercel.app/pay-confirm
+
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+
+Best regards,
+[Business Name]`}
+                {selectedReminderType === 'REMINDER_3' && `Dear ${reminderTargetStudent?.parentName || 'Parent'},
+
+⚠️ Final Reminder: Transport fee ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} for [Month] is still unpaid.
+
+🏫 Student: ${reminderTargetStudent?.name || 'Student Name'}
+
+To pay and confirm:
+1️⃣ Pay ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} via UPI to: [UPI ID]
+2️⃣ Confirm your payment here:
+👉 https://transitos.vercel.app/pay-confirm
+
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional to prevent service disruption.)
+
+Best regards,
+[Business Name]`}
               </div>
             </div>
           </div>

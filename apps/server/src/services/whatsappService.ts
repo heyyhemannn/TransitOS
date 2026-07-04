@@ -534,6 +534,8 @@ export const TEMPLATES: Record<MessageType, string> = {
 
 Transport fee of ₹{amount} for {month} is now due.
 
+🏫 Student: {studentName}
+
 To pay and confirm:
 1️⃣ Pay ₹{amount} via UPI to: {upiId}
 2️⃣ Confirm your payment here:
@@ -547,6 +549,8 @@ Thank you,
   [MessageType.REMINDER_2]: `Dear {parentName},
 
 🔔 Reminder: Transport fee of ₹{amount} for {month} is still pending.
+
+🏫 Student: {studentName}
 
 To pay and confirm:
 1️⃣ Pay ₹{amount} via UPI to: {upiId}
@@ -562,6 +566,8 @@ Best regards,
 
 ⚠️ Final Reminder: Transport fee ₹{amount} for {month} is still unpaid.
 
+🏫 Student: {studentName}
+
 To pay and confirm:
 1️⃣ Pay ₹{amount} via UPI to: {upiId}
 2️⃣ Confirm your payment here:
@@ -575,6 +581,8 @@ Best regards,
   [MessageType.FINAL]: `🚨 URGENT: Dear {parentName},
 
 Transport fee ₹{amount} for {month} is OVERDUE.
+
+🏫 Student: {studentName}
 
 Please pay immediately to ensure uninterrupted service:
 1️⃣ Pay ₹{amount} via UPI to: {upiId}
