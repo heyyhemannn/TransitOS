@@ -144,11 +144,11 @@ export default function ParentConfirmPage() {
           <p className="text-xs text-slate-500 leading-relaxed">
             {isPaid ? (
               <>
-                Your official receipt has been sent to your WhatsApp. Thank you for your prompt payment!
+                Your payment bill/invoice has been sent to your WhatsApp. Thank you for your payment!
               </>
             ) : (
               <>
-                Since no screenshot was uploaded, the administrator of <strong>Hemanth's Transport Services</strong> will verify this reference and release your official PDF receipt on WhatsApp once verified.
+                Since no screenshot was uploaded, the administrator of <strong>Hemanth&apos;s Transport Services</strong> will verify this reference and release your payment bill/invoice on WhatsApp once verified.
               </>
             )}
           </p>

@@ -582,17 +582,17 @@ Contact admin: {adminWhatsapp}
 
 {businessName}`,
 
-  [MessageType.CONFIRMATION]: `✅ Payment Confirmed! Thank you for paying earliest! 🙏
+  [MessageType.CONFIRMATION]: `✅ Payment Confirmed! Thank you! 🙏
 
 Dear {parentName},
 
-We have successfully received and verified your transport fee payment of ₹{amount} for {month}.
+We have received your transport fee payment of ₹{amount} for {month}.
 
 🏫 Student: {studentName}
-🧾 Receipt No: {receiptId}
+🧾 Invoice No: {receiptId}
 📅 Date: {paidDate}
 
-Your official PDF receipt is attached below. Thank you once again for your prompt payment and continued support!
+Your payment bill/invoice is attached below. Thank you for your continued support!
 
 Best regards,
 {businessName}`,
