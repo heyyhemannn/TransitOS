@@ -536,10 +536,10 @@ Transport fee of ₹{amount} for {month} is now due.
 
 To pay and confirm:
 1️⃣ Pay ₹{amount} via UPI to: {upiId}
-2️⃣ Submit your payment screenshot here:
+2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-Fill in your name, mobile number, and upload the screenshot. Our team will verify and send your receipt.
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
 
 Thank you,
 {businessName}`,
@@ -548,38 +548,42 @@ Thank you,
 
 🔔 Reminder: Transport fee of ₹{amount} for {month} is still pending.
 
-Please pay and confirm at:
+To pay and confirm:
+1️⃣ Pay ₹{amount} via UPI to: {upiId}
+2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-Steps:
-1️⃣ Pay ₹{amount} to UPI: {upiId}
-2️⃣ Upload screenshot at the link above
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
 
+Best regards,
 {businessName}`,
 
   [MessageType.REMINDER_3]: `Dear {parentName},
 
 ⚠️ Final Reminder: Transport fee ₹{amount} for {month} is still unpaid.
 
-Please complete payment immediately:
-1️⃣ Pay ₹{amount} to UPI: {upiId}
-2️⃣ Submit proof: ${PAY_CONFIRM_URL}
+To pay and confirm:
+1️⃣ Pay ₹{amount} via UPI to: {upiId}
+2️⃣ Confirm your payment here:
+👉 ${PAY_CONFIRM_URL}
 
-Failure to pay may affect transport service.
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional to prevent service disruption.)
 
+Best regards,
 {businessName}`,
 
   [MessageType.FINAL]: `🚨 URGENT: Dear {parentName},
 
 Transport fee ₹{amount} for {month} is OVERDUE.
 
-Pay immediately and submit proof:
+Please pay immediately to ensure uninterrupted service:
+1️⃣ Pay ₹{amount} via UPI to: {upiId}
+2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-UPI: {upiId}
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
 
-Contact admin: {adminWhatsapp}
-
+Best regards,
 {businessName}`,
 
   [MessageType.CONFIRMATION]: `✅ Payment Confirmed! Thank you! 🙏
