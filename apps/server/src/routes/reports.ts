@@ -282,3 +282,84 @@ reportsRouter.get(
     }
   },
 );
+
+/**
+ * GET /api/v1/reports/school-performance
+ * Returns school-wise collection and payment metrics for the current billing cycle
+ */
+reportsRouter.get(
+  '/school-performance',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const currentMonth = nowIST.getMonth() + 1;
+      const currentYear = nowIST.getFullYear();
+
+      // July 2026 override default check as in statistics route
+      const month = req.query.month ? parseInt(req.query.month as string) : (currentMonth === 6 && currentYear === 2026 ? 7 : currentMonth);
+      const year = req.query.year ? parseInt(req.query.year as string) : currentYear;
+
+      // 1. Fetch active students
+      const students = await prisma.student.findMany({
+        where: { status: StudentStatus.ACTIVE },
+        select: { id: true, school: true, monthlyFee: true },
+      });
+
+      // 2. Fetch all PAID payments for this month
+      const payments = await prisma.payment.findMany({
+        where: {
+          month,
+          year,
+          status: PaymentStatus.PAID,
+        },
+        select: { studentId: true, amount: true },
+      });
+
+      const paidStudentMap = new Map(payments.map(p => [p.studentId, p.amount]));
+
+      // 3. Group by school
+      const schoolMap: Record<string, { expected: number; collected: number; pending: number; count: number }> = {};
+
+      for (const s of students) {
+        const schoolName = s.school || 'Unspecified School';
+        if (!schoolMap[schoolName]) {
+          schoolMap[schoolName] = { expected: 0, collected: 0, pending: 0, count: 0 };
+        }
+
+        const isPaid = paidStudentMap.has(s.id);
+        const amountCollected = isPaid ? (paidStudentMap.get(s.id) ?? s.monthlyFee) : 0;
+        const amountPending = isPaid ? 0 : s.monthlyFee;
+        const amountExpected = s.monthlyFee;
+
+        schoolMap[schoolName].expected += amountExpected;
+        schoolMap[schoolName].collected += amountCollected;
+        schoolMap[schoolName].pending += amountPending;
+        schoolMap[schoolName].count += 1;
+      }
+
+      const schoolMetrics = Object.entries(schoolMap).map(([schoolName, data]) => {
+        const rate = data.expected === 0 ? 100 : parseFloat(((data.collected / data.expected) * 100).toFixed(1));
+        return {
+          school: schoolName,
+          expected: data.expected,
+          collected: data.collected,
+          pending: data.pending,
+          studentCount: data.count,
+          rate,
+        };
+      });
+
+      // Sort by expected contribution descending
+      schoolMetrics.sort((a, b) => b.expected - a.expected);
+
+      res.json({
+        success: true,
+        data: schoolMetrics,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+

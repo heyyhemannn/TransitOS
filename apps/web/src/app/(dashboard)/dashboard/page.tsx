@@ -130,6 +130,31 @@ export default function DashboardPage() {
     refetchInterval: 5000,
   });
 
+  // 4. Fetch school-wise performance
+  const { data: schoolData, isLoading: schoolLoading } = useQuery({
+    queryKey: ['school-performance'],
+    queryFn: async () => {
+      const res = await api.get<{
+        data: Array<{
+          school: string;
+          expected: number;
+          collected: number;
+          pending: number;
+          studentCount: number;
+          rate: number;
+        }>;
+      }>('/reports/school-performance');
+      // Format from paise to rupees for Recharts
+      return res.data.data.map(item => ({
+        ...item,
+        Expected: item.expected / 100,
+        Collected: item.collected / 100,
+        Pending: item.pending / 100,
+      }));
+    },
+    refetchInterval: 5000,
+  });
+
   const getMonthName = (m: number) => {
     return [
       'Jan',
@@ -147,7 +172,7 @@ export default function DashboardPage() {
     ][m - 1];
   };
 
-  const dashboardLoading = statsLoading || chartLoading || paymentsLoading;
+  const dashboardLoading = statsLoading || chartLoading || paymentsLoading || schoolLoading;
 
   if (dashboardLoading) {
     return (
@@ -269,9 +294,43 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Recharts Bar Chart */}
-        <Card className="lg:col-span-2 border-slate-200 dark:border-slate-800 bg-card shadow-md">
+      {/* Overall Progress Target Tracker */}
+      {stats && (
+        <Card className="border-slate-200 dark:border-slate-800 bg-card p-6 shadow-md relative overflow-hidden group">
+          <div className="absolute right-0 top-0 h-40 w-40 translate-x-12 translate-y-[-10px] rounded-full bg-emerald-500/5 group-hover:scale-110 transition-transform" />
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-1">
+              <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Overall Collection Target</h3>
+              <p className="text-2xl font-black text-foreground">
+                {stats.expectedRevenue > 0
+                  ? `${Math.round((stats.receivedRevenue / stats.expectedRevenue) * 100)}% Collected`
+                  : '0% Collected'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Collected {formatCurrency(stats.receivedRevenue)} out of total {formatCurrency(stats.expectedRevenue)} expected for this billing cycle
+              </p>
+            </div>
+            
+            <div className="flex-1 max-w-md w-full">
+              <div className="flex justify-between items-center mb-1.5 text-xs font-black text-muted-foreground uppercase">
+                <span>Monthly Target Achievement</span>
+                <span>{stats.expectedRevenue > 0 ? Math.round((stats.receivedRevenue / stats.expectedRevenue) * 100) : 0}%</span>
+              </div>
+              <div className="w-full bg-slate-100 dark:bg-slate-800 h-3 rounded-full overflow-hidden shadow-inner">
+                <div 
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-1000 shadow-[0_0_8px_rgba(16,185,129,0.3)]"
+                  style={{ width: `${stats.expectedRevenue > 0 ? Math.min(100, (stats.receivedRevenue / stats.expectedRevenue) * 100) : 0}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* 2-Column charts: Monthly History & School Comparison */}
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
+        {/* Recharts Bar Chart - Monthly Performance */}
+        <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md">
           <CardHeader>
             <CardTitle className="text-lg font-bold">Revenue Collection Overview</CardTitle>
             <CardDescription>Monthly target collections vs. received payments (INR)</CardDescription>
@@ -283,8 +342,8 @@ export default function DashboardPage() {
                 margin={{ top: 10, right: 10, left: 10, bottom: 0 }}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted/30" />
-                <XAxis dataKey="monthName" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
-                <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                <XAxis dataKey="monthName" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
+                <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: 'hsl(var(--card))',
@@ -294,12 +353,109 @@ export default function DashboardPage() {
                   }}
                   cursor={{ fill: 'rgba(0,0,0,0.05)' }}
                 />
-                <Legend wrapperStyle={{ fontSize: '13px', paddingTop: '10px' }} />
-                <Bar dataKey="Expected" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={30} />
-                <Bar dataKey="Collected" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                <Bar dataKey="Expected" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={20} />
+                <Bar dataKey="Collected" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={20} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
+        </Card>
+
+        {/* School-Wise Comparison Bar Chart */}
+        <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md">
+          <CardHeader>
+            <CardTitle className="text-lg font-bold">School Wise Comparison</CardTitle>
+            <CardDescription>Target vs. collected revenue comparison by school (INR)</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80 pl-2">
+            {schoolData && schoolData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={schoolData}
+                  layout="vertical"
+                  margin={{ top: 10, right: 10, left: 10, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-muted/30" />
+                  <XAxis type="number" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} />
+                  <YAxis dataKey="school" type="category" width={90} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      borderColor: 'hsl(var(--border))',
+                      borderRadius: '8px',
+                      color: 'hsl(var(--card-foreground))',
+                    }}
+                    cursor={{ fill: 'rgba(0,0,0,0.05)' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                  <Bar dataKey="Expected" fill="#6366f1" radius={[0, 4, 4, 0]} maxBarSize={15} />
+                  <Bar dataKey="Collected" fill="#10b981" radius={[0, 4, 4, 0]} maxBarSize={15} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                No school metrics available.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 2-Column Details: School Contributions Table & Recent Payments Feed */}
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
+        {/* School Leaderboard / Table Details */}
+        <Card className="lg:col-span-2 border-slate-200 dark:border-slate-800 bg-card shadow-md flex flex-col justify-between">
+          <div>
+            <CardHeader>
+              <CardTitle className="text-lg font-bold">School Wise Contributions</CardTitle>
+              <CardDescription>Detailed collections and progress metrics by school</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {schoolData && schoolData.length > 0 ? (
+                schoolData.map((item) => (
+                  <div key={item.school} className="space-y-2 border-b pb-4 last:border-0 last:pb-0">
+                    <div className="flex justify-between items-center text-sm font-bold">
+                      <span className="truncate text-foreground max-w-[280px]">{item.school}</span>
+                      <span className={cn(
+                        "text-xs px-2.5 py-0.5 rounded font-black",
+                        item.rate >= 90
+                          ? "bg-emerald-500/10 text-emerald-500"
+                          : item.rate >= 50
+                          ? "bg-amber-500/10 text-amber-500"
+                          : "bg-rose-500/10 text-rose-500"
+                      )}>
+                        {item.rate}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-muted-foreground">
+                      <span>{item.studentCount} Active Students</span>
+                      <span className="font-semibold text-foreground">
+                        ₹{item.Collected.toLocaleString('en-IN')} Collected / <span className="text-muted-foreground font-normal">₹{item.Expected.toLocaleString('en-IN')} Expected</span>
+                      </span>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          item.rate >= 90
+                            ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                            : item.rate >= 50
+                            ? "bg-gradient-to-r from-amber-500 to-orange-400"
+                            : "bg-gradient-to-r from-rose-500 to-red-400"
+                        )}
+                        style={{ width: `${item.rate}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                  <p className="text-sm">No school contribution data available.</p>
+                </div>
+              )}
+            </CardContent>
+          </div>
         </Card>
 
         {/* Recent Payments Feed */}
