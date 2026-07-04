@@ -111,21 +111,24 @@ export default function DashboardPage() {
     queryKey: ['recent-payments-feed'],
     queryFn: async () => {
       const res = await api.get<{
-        data: Array<{
-          id: string;
-          amount: number;
-          month: number;
-          year: number;
-          method: string;
-          paidAt: string;
-          student: {
-            name: string;
-            parentName: string;
-            school: string;
-          };
-        }>;
+        data: {
+          payments: Array<{
+            id: string;
+            amount: number;
+            month: number;
+            year: number;
+            method: string;
+            status: string;
+            paidAt: string;
+            student: {
+              name: string;
+              parentName: string;
+              school: string;
+            };
+          }>;
+        };
       }>('/payments?limit=5');
-      return res.data.data;
+      return res.data.data.payments;
     },
     refetchInterval: 5000,
   });
@@ -489,10 +492,24 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-bold text-success">
-                        +₹{(payment.amount / 100).toFixed(0)}
+                      <p className={cn(
+                        "text-sm font-bold",
+                        payment.status === 'PAID' ? "text-success" : 
+                        payment.status === 'PENDING' ? "text-amber-500" : "text-destructive"
+                      )}>
+                        {payment.status === 'PAID' ? '+' : ''}₹{(payment.amount / 100).toFixed(0)}
                       </p>
-                      <p className="text-xs text-muted-foreground">{payment.method}</p>
+                      <div className="flex items-center justify-end gap-1 mt-0.5">
+                        <span className={cn(
+                          "text-[9px] px-1.5 py-0.2 rounded font-black uppercase",
+                          payment.status === 'PAID' ? "bg-emerald-500/10 text-emerald-500" :
+                          payment.status === 'PENDING' ? "bg-amber-500/10 text-amber-500" :
+                          "bg-rose-500/10 text-rose-500"
+                        )}>
+                          {payment.status}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">• {payment.method}</span>
+                      </div>
                     </div>
                   </div>
                 ))
