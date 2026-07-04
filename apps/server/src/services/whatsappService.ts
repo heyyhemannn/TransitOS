@@ -191,9 +191,24 @@ class WhatsAppService {
   }
 
   private formatPhone(phone: string): string {
-    const digits = phone.replace(/\D/g, '');
-    const withCountry = digits.startsWith('91') ? digits : `91${digits}`;
-    return `${withCountry}@s.whatsapp.net`;
+    let digits = phone.replace(/\D/g, '');
+
+    // Remove leading zero if present for 11-digit numbers
+    if (digits.length === 11 && digits.startsWith('0')) {
+      digits = digits.slice(1);
+    }
+
+    // If it's a standard 10-digit Indian number, prepend country code 91
+    if (digits.length === 10) {
+      digits = `91${digits}`;
+    }
+
+    // Fallback prefixing if it doesn't already start with 91
+    if (!digits.startsWith('91') && digits.length < 12) {
+      digits = `91${digits}`;
+    }
+
+    return `${digits}@s.whatsapp.net`;
   }
 
   private async enforceRateLimit() {
