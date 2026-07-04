@@ -474,20 +474,110 @@ class WhatsAppService {
     }
   }
 
+  async sendCollectiveTemplate(
+    studentIds: string[],
+    type: MessageType,
+    extraVars?: Record<string, string>
+  ): Promise<void> {
+    const students = await prisma.student.findMany({
+      where: { id: { in: studentIds } },
+      include: { route: true },
+    });
+    if (students.length === 0) return;
+
+    const firstStudent = students[0];
+    const settings = await prisma.settings.findMany();
+    const getSetting = (key: string) => settings.find(s => s.key === key)?.value ?? '';
+
+    const currentDate = new Date();
+    const month = currentDate.getMonth() + 1;
+    const year = currentDate.getFullYear();
+
+    const totalFee = students.reduce((sum, s) => sum + s.monthlyFee, 0);
+
+    const studentList = students
+      .map(s => `- ${s.name}: ₹${this.formatAmount(s.monthlyFee)}`)
+      .join('\n');
+
+    const joinedNames = students.map(s => s.name).join(' & ');
+
+    const vars: Record<string, string> = {
+      parentName: firstStudent.parentName,
+      studentName: joinedNames,
+      studentList: studentList,
+      amount: this.formatAmount(totalFee),
+      totalAmount: this.formatAmount(totalFee),
+      month: this.formatMonth(month, year),
+      upiId: getSetting('upiId'),
+      businessName: getSetting('businessName'),
+      adminWhatsapp: getSetting('adminWhatsapp'),
+      receiptId: extraVars?.receiptId ?? '',
+      ...extraVars,
+    };
+
+    let templateText = '';
+    if (type === MessageType.BROADCAST) {
+      templateText = extraVars?.message || '';
+    } else if (type === MessageType.EMERGENCY) {
+      templateText = TEMPLATES[MessageType.EMERGENCY];
+    } else if (type === MessageType.CONFIRMATION) {
+      templateText = TEMPLATES[MessageType.CONFIRMATION];
+    } else {
+      templateText = COLLECTIVE_TEMPLATES[type as keyof typeof COLLECTIVE_TEMPLATES] || TEMPLATES[type];
+    }
+
+    let body = templateText;
+    for (const [key, value] of Object.entries(vars)) {
+      body = body.replaceAll(`{${key}}`, value);
+    }
+
+    await this.sendMessage(firstStudent.whatsappNumber, body, firstStudent.id, type);
+  }
+
   async broadcastToList(
     studentIds: string[],
     type: MessageType,
     extraVars?: Record<string, string>
   ): Promise<{ sent: number; failed: number }> {
     let sent = 0, failed = 0;
-    for (const id of studentIds) {
+
+    // 1. Fetch all students in the list
+    const students = await prisma.student.findMany({
+      where: { id: { in: studentIds } },
+    });
+
+    // 2. Group by WhatsApp number (clean formatting to match correctly)
+    const grouped: Record<string, typeof students> = {};
+    for (const s of students) {
+      const cleanPhone = s.whatsappNumber.replace(/\D/g, '');
+      const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+      if (!grouped[formattedPhone]) {
+        grouped[formattedPhone] = [];
+      }
+      grouped[formattedPhone].push(s);
+    }
+
+    // 3. Process each group sequentially
+    for (const [phone, groupStudents] of Object.entries(grouped)) {
       try {
-        await this.sendTemplate(id, type, extraVars);
-        sent++;
-      } catch {
-        failed++;
+        if (groupStudents.length === 1) {
+          // Single student, send standard template
+          await this.sendTemplate(groupStudents[0].id, type, extraVars);
+          sent++;
+        } else {
+          // Sibling group, send collective template
+          logger.info(`Sending collective message to group ${phone} containing ${groupStudents.length} students.`);
+          await this.sendCollectiveTemplate(groupStudents.map(s => s.id), type, extraVars);
+          sent += groupStudents.length;
+        }
+        // Small delay between broadcasts to prevent connection bottlenecks
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (err) {
+        logger.error(`Failed to send broadcast/reminder to group ${phone}:`, err);
+        failed += groupStudents.length;
       }
     }
+
     return { sent, failed };
   }
 
@@ -631,6 +721,87 @@ Best regards,
 For any queries: {adminWhatsapp}`,
 
   [MessageType.BROADCAST]: `{message}`,
+};
+
+export const COLLECTIVE_TEMPLATES: Record<
+  Exclude<MessageType, 'CONFIRMATION' | 'EMERGENCY' | 'BROADCAST'>,
+  string
+> = {
+  [MessageType.REMINDER_1]: `Dear {parentName},
+
+Transport fee for {month} is now due for your children.
+
+🏫 Students:
+{studentList}
+
+Total Combined Fee: ₹{totalAmount}
+
+To pay and confirm:
+1️⃣ Pay ₹{totalAmount} via UPI to: {upiId}
+2️⃣ Confirm your payment here:
+👉 ${PAY_CONFIRM_URL}
+
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+
+Thank you,
+{businessName}`,
+
+  [MessageType.REMINDER_2]: `Dear {parentName},
+
+🔔 Reminder: Transport fee for {month} is still pending for your children.
+
+🏫 Students:
+{studentList}
+
+Total Combined Fee: ₹{totalAmount}
+
+To pay and confirm:
+1️⃣ Pay ₹{totalAmount} via UPI to: {upiId}
+2️⃣ Confirm your payment here:
+👉 ${PAY_CONFIRM_URL}
+
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+
+Best regards,
+{businessName}`,
+
+  [MessageType.REMINDER_3]: `Dear {parentName},
+
+⚠️ Final Reminder: Transport fee for {month} is still unpaid for your children.
+
+🏫 Students:
+{studentList}
+
+Total Combined Fee: ₹{totalAmount}
+
+To pay and confirm:
+1️⃣ Pay ₹{totalAmount} via UPI to: {upiId}
+2️⃣ Confirm your payment here:
+👉 ${PAY_CONFIRM_URL}
+
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional to prevent service disruption.)
+
+Best regards,
+{businessName}`,
+
+  [MessageType.FINAL]: `🚨 URGENT: Dear {parentName},
+
+Transport fee for {month} is OVERDUE for your children.
+
+🏫 Students:
+{studentList}
+
+Total Combined Fee: ₹{totalAmount}
+
+Please pay immediately to ensure uninterrupted service:
+1️⃣ Pay ₹{totalAmount} via UPI to: {upiId}
+2️⃣ Confirm your payment here:
+👉 ${PAY_CONFIRM_URL}
+
+(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+
+Best regards,
+{businessName}`,
 };
 
 export function formatTemplate(templateText: string, vars: Record<string, string>): string {
