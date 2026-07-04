@@ -76,6 +76,7 @@ paymentsRouter.get(
       const studentId = req.query.studentId as string;
       const school = req.query.school as string;
       const routeId = req.query.routeId as string;
+      const search = req.query.search as string;
 
       // Construct filter query
       const where: any = {};
@@ -89,6 +90,55 @@ paymentsRouter.get(
         where.student = {};
         if (school) where.student.school = school;
         if (routeId) where.student.routeId = routeId;
+      }
+
+      if (search) {
+        const searchVal = search.trim();
+        where.OR = [
+          {
+            transactionId: {
+              contains: searchVal,
+              mode: 'insensitive',
+            },
+          },
+          {
+            student: {
+              name: {
+                contains: searchVal,
+                mode: 'insensitive',
+              },
+            },
+          },
+          {
+            student: {
+              parentName: {
+                contains: searchVal,
+                mode: 'insensitive',
+              },
+            },
+          },
+          {
+            student: {
+              fatherMobile: {
+                contains: searchVal,
+              },
+            },
+          },
+          {
+            student: {
+              motherMobile: {
+                contains: searchVal,
+              },
+            },
+          },
+          {
+            student: {
+              whatsappNumber: {
+                contains: searchVal,
+              },
+            },
+          },
+        ];
       }
 
       // Execute queries
