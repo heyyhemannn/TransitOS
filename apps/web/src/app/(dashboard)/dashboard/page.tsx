@@ -19,6 +19,11 @@ import { api } from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
+  AreaChart,
+  Area,
+  PieChart,
+  Pie,
+  Cell,
   BarChart,
   Bar,
   XAxis,
@@ -29,6 +34,9 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { cn } from '@/lib/utils';
+
+// Premium color palette for charts/donut segments
+const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#3b82f6', '#8b5cf6'];
 
 // Helper to format currency
 const formatCurrency = (paise: number) => {
@@ -330,20 +338,30 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {/* 2-Column charts: Monthly History & School Comparison */}
+      {/* 2-Column charts: Monthly Trend Area Chart & School Donut Chart */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
-        {/* Recharts Bar Chart - Monthly Performance */}
+        {/* Recharts Area Chart - Monthly Performance */}
         <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md">
           <CardHeader>
-            <CardTitle className="text-lg font-bold">Revenue Collection Overview</CardTitle>
+            <CardTitle className="text-lg font-bold">Revenue Collection Trend</CardTitle>
             <CardDescription>Monthly target collections vs. received payments (INR)</CardDescription>
           </CardHeader>
           <CardContent className="h-80 pl-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
+              <AreaChart
                 data={monthlyData}
                 margin={{ top: 10, right: 10, left: 10, bottom: 0 }}
               >
+                <defs>
+                  <linearGradient id="colorExpected" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorCollected" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted/30" />
                 <XAxis dataKey="monthName" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
                 <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
@@ -354,50 +372,61 @@ export default function DashboardPage() {
                     borderRadius: '8px',
                     color: 'hsl(var(--card-foreground))',
                   }}
-                  cursor={{ fill: 'rgba(0,0,0,0.05)' }}
                 />
                 <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                <Bar dataKey="Expected" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={20} />
-                <Bar dataKey="Collected" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={20} />
-              </BarChart>
+                <Area type="monotone" dataKey="Expected" stroke="#6366f1" strokeWidth={2} fillOpacity={1} fill="url(#colorExpected)" />
+                <Area type="monotone" dataKey="Collected" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorCollected)" />
+              </AreaChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* School-Wise Comparison Bar Chart */}
-        <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md">
+        {/* School-Wise Expected Contribution Donut Chart */}
+        <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md flex flex-col justify-between">
           <CardHeader>
-            <CardTitle className="text-lg font-bold">School Wise Comparison</CardTitle>
-            <CardDescription>Target vs. collected revenue comparison by school (INR)</CardDescription>
+            <CardTitle className="text-lg font-bold">School Target Contribution</CardTitle>
+            <CardDescription>Share of total expected revenue by school (INR)</CardDescription>
           </CardHeader>
-          <CardContent className="h-80 pl-2">
+          <CardContent className="h-80 flex items-center justify-center">
             {schoolData && schoolData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={schoolData}
-                  layout="vertical"
-                  margin={{ top: 10, right: 10, left: 10, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-muted/30" />
-                  <XAxis type="number" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} />
-                  <YAxis dataKey="school" type="category" width={90} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      borderColor: 'hsl(var(--border))',
-                      borderRadius: '8px',
-                      color: 'hsl(var(--card-foreground))',
-                    }}
-                    cursor={{ fill: 'rgba(0,0,0,0.05)' }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                  <Bar dataKey="Expected" fill="#6366f1" radius={[0, 4, 4, 0]} maxBarSize={15} />
-                  <Bar dataKey="Collected" fill="#10b981" radius={[0, 4, 4, 0]} maxBarSize={15} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="w-full h-full relative flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={schoolData}
+                      dataKey="Expected"
+                      nameKey="school"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={85}
+                      paddingAngle={4}
+                    >
+                      {schoolData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value: any) => [`₹${value.toLocaleString('en-IN')}`, 'Expected Contribution']}
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        borderColor: 'hsl(var(--border))',
+                        borderRadius: '8px',
+                        color: 'hsl(var(--card-foreground))',
+                      }}
+                    />
+                    <Legend 
+                      verticalAlign="bottom" 
+                      height={36} 
+                      iconType="circle"
+                      wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} 
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
-              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-                No school metrics available.
+              <div className="text-muted-foreground text-sm">
+                No school contribution data available.
               </div>
             )}
           </CardContent>
