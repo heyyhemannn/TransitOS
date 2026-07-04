@@ -89,7 +89,7 @@ export default function DashboardPage() {
       }>('/reports/stats');
       return res.data.data;
     },
-    refetchInterval: 5000,
+    refetchInterval: 30000,
   });
 
   // 2. Fetch monthly aggregate data for chart
@@ -138,7 +138,7 @@ export default function DashboardPage() {
       }>('/payments?limit=5');
       return res.data.data.payments;
     },
-    refetchInterval: 5000,
+    refetchInterval: 30000,
   });
 
   // 4. Fetch school-wise performance
@@ -163,7 +163,7 @@ export default function DashboardPage() {
         Pending: item.pending / 100,
       }));
     },
-    refetchInterval: 5000,
+    refetchInterval: 30000,
   });
 
   const getMonthName = (m: number) => {
