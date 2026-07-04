@@ -84,6 +84,12 @@ export default function PaymentsPage() {
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [importSummary, setImportSummary] = React.useState<any | null>(null);
 
+  // Unpaid dialog states
+  const [unpaidDialogOpen, setUnpaidDialogOpen] = React.useState(false);
+  const [unpaidSearch, setUnpaidSearch] = React.useState('');
+  const [unpaidSchool, setUnpaidSchool] = React.useState('ALL');
+  const [unpaidSort, setUnpaidSort] = React.useState<'NAME_ASC' | 'NAME_DESC' | 'SCHOOL_ASC' | 'SCHOOL_DESC'>('SCHOOL_ASC');
+
   // Screenshot viewer states
   const [screenshotOpen, setScreenshotOpen] = React.useState(false);
   const [viewingScreenshotUrl, setViewingScreenshotUrl] = React.useState<string | null>(null);
@@ -237,6 +243,83 @@ export default function PaymentsPage() {
       return res.data.data.students;
     },
   });
+
+  // 2b. Fetch active unpaid students for the main page selected month/year
+  const { data: unpaidStudents, isLoading: unpaidLoading } = useQuery({
+    queryKey: ['unpaid-students-list', selectedMonth, selectedYear],
+    queryFn: async () => {
+      const res = await api.get<{ data: { students: any[] } }>(
+        `/students?limit=1000&status=ACTIVE&unpaidMonth=${selectedMonth}&unpaidYear=${selectedYear}`
+      );
+      return res.data.data.students;
+    },
+    refetchInterval: 5000,
+  });
+
+  // Filter and sort unpaid list in-memory for real-time updates
+  const filteredAndSortedUnpaid = React.useMemo(() => {
+    if (!unpaidStudents) return [];
+    
+    // Filter
+    const searchVal = unpaidSearch.toLowerCase().trim();
+    let result = unpaidStudents.filter((s: any) => {
+      // School filter
+      if (unpaidSchool !== 'ALL' && s.school !== unpaidSchool) {
+        return false;
+      }
+      // Text search match
+      if (searchVal) {
+        const nameMatch = s.name?.toLowerCase().includes(searchVal);
+        const schoolMatch = s.school?.toLowerCase().includes(searchVal);
+        const classMatch = s.class?.toLowerCase().includes(searchVal);
+        const parentMatch = s.parentName?.toLowerCase().includes(searchVal);
+        const mobileMatch = s.fatherMobile?.includes(searchVal) || s.motherMobile?.includes(searchVal) || s.whatsappNumber?.includes(searchVal);
+        return nameMatch || schoolMatch || classMatch || parentMatch || mobileMatch;
+      }
+      return true;
+    });
+
+    // Sort
+    result.sort((a: any, b: any) => {
+      if (unpaidSort === 'NAME_ASC') {
+        return (a.name || '').localeCompare(b.name || '');
+      } else if (unpaidSort === 'NAME_DESC') {
+        return (b.name || '').localeCompare(a.name || '');
+      } else if (unpaidSort === 'SCHOOL_ASC') {
+        const schoolCompare = (a.school || '').localeCompare(b.school || '');
+        if (schoolCompare !== 0) return schoolCompare;
+        return (a.name || '').localeCompare(b.name || '');
+      } else if (unpaidSort === 'SCHOOL_DESC') {
+        const schoolCompare = (b.school || '').localeCompare(a.school || '');
+        if (schoolCompare !== 0) return schoolCompare;
+        return (a.name || '').localeCompare(b.name || '');
+      }
+      return 0;
+    });
+
+    return result;
+  }, [unpaidStudents, unpaidSearch, unpaidSchool, unpaidSort]);
+
+  const handleTallyFromUnpaid = (student: any) => {
+    setUnpaidDialogOpen(false);
+    
+    // Prefill the manual tally form with this student, month, year, and amount
+    manualForm.reset({
+      students: [{
+        studentId: student.id,
+        amount: student.monthlyFee / 100, // Rupees
+        name: student.name,
+        school: student.school,
+      }],
+      month: parseInt(selectedMonth),
+      year: parseInt(selectedYear),
+      method: 'UPI',
+      remarks: '',
+      transactionId: '',
+    });
+    setStudentSearch('');
+    setManualOpen(true);
+  };
 
   // Filter students in-memory based on name, school, class, parentName, fatherMobile, motherMobile, whatsappNumber
   const filteredStudents = React.useMemo(() => {
@@ -426,6 +509,14 @@ export default function PaymentsPage() {
           )}
         </div>
         <div className="flex gap-3">
+          <Button
+            variant="outline"
+            onClick={() => setUnpaidDialogOpen(true)}
+            className="gap-2 border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 font-bold"
+          >
+            <AlertCircle className="h-4 w-4 text-rose-500" />
+            Unpaid List ({unpaidLoading ? '...' : unpaidStudents?.length ?? 0})
+          </Button>
           {isAdmin && (
             <Button variant="outline" onClick={() => setUploadOpen(true)} className="gap-2 font-bold">
               <Upload className="h-4 w-4" />
@@ -1160,6 +1251,129 @@ export default function PaymentsPage() {
               </Button>
             )}
             <Button onClick={() => setScreenshotOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unpaid Students List Dialog */}
+      <Dialog open={unpaidDialogOpen} onOpenChange={setUnpaidDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col bg-card border border-slate-200 dark:border-slate-800">
+          <DialogHeader>
+            <DialogTitle>Unpaid Students List</DialogTitle>
+            <DialogDescription>
+              Active students who have not paid fees for the selected billing month ({selectedMonth}/{selectedYear})
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Filters Bar inside Dialog */}
+          <div className="grid gap-3 sm:grid-cols-3 my-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search name, parent, or mobile..."
+                className="pl-8 h-9 text-xs bg-card"
+                value={unpaidSearch}
+                onChange={(e) => setUnpaidSearch(e.target.value)}
+              />
+            </div>
+
+            <select
+              value={unpaidSchool}
+              onChange={(e) => setUnpaidSchool(e.target.value)}
+              className="p-1.5 h-9 border rounded-md bg-card text-foreground text-xs"
+            >
+              <option value="ALL">All Schools</option>
+              <option value="DPS BRINDAVANAM">DPS BRINDAVANAM</option>
+              <option value="DPS PHASE 2">DPS PHASE 2</option>
+              <option value="UNICENT">UNICENT</option>
+            </select>
+
+            <select
+              value={unpaidSort}
+              onChange={(e) => setUnpaidSort(e.target.value as any)}
+              className="p-1.5 h-9 border rounded-md bg-card text-foreground text-xs"
+            >
+              <option value="SCHOOL_ASC">Sort by School (A-Z)</option>
+              <option value="SCHOOL_DESC">Sort by School (Z-A)</option>
+              <option value="NAME_ASC">Sort by Student Name (A-Z)</option>
+              <option value="NAME_DESC">Sort by Student Name (Z-A)</option>
+            </select>
+          </div>
+
+          {/* List Section */}
+          <div className="flex-1 overflow-y-auto min-h-[350px] max-h-[50vh] border border-slate-100 dark:border-slate-900 rounded-lg bg-slate-50/50 dark:bg-slate-950/15 p-2">
+            {unpaidLoading ? (
+              <div className="flex items-center justify-center h-48">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : filteredAndSortedUnpaid.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase text-muted-foreground tracking-wider font-bold">
+                      <th className="p-2">Student / Class</th>
+                      <th className="p-2">School</th>
+                      <th className="p-2">Parent Details</th>
+                      <th className="p-2 text-right">Fee</th>
+                      <th className="p-2 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-900">
+                    {filteredAndSortedUnpaid.map((student: any) => (
+                      <tr key={student.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition-colors">
+                        <td className="p-2">
+                          <div className="font-semibold text-foreground">{student.name}</div>
+                          <div className="text-[10px] text-muted-foreground">Class {student.class}</div>
+                        </td>
+                        <td className="p-2 text-muted-foreground font-medium">
+                          {student.school}
+                        </td>
+                        <td className="p-2 text-muted-foreground">
+                          <div className="font-medium text-foreground">{student.parentName}</div>
+                          <div className="text-[10px] flex items-center gap-1.5 mt-0.5">
+                            <span>F: {student.fatherMobile}</span>
+                            {student.motherMobile && (
+                              <>
+                                <span>•</span>
+                                <span>M: {student.motherMobile}</span>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-2 text-right font-bold text-foreground">
+                          ₹{student.monthlyFee / 100}
+                        </td>
+                        <td className="p-2 text-right">
+                          <Button
+                            size="sm"
+                            className="h-7 text-[10px] font-bold px-2.5 py-1 gap-1"
+                            onClick={() => handleTallyFromUnpaid(student)}
+                          >
+                            <IndianRupee className="h-3 w-3" />
+                            Tally
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-48 gap-1.5 text-center p-4">
+                <AlertCircle className="h-8 w-8 text-muted-foreground/60" />
+                <p className="text-sm font-semibold text-foreground">No Unpaid Students Found</p>
+                <p className="text-xs text-muted-foreground max-w-xs">
+                  All active students have either paid for this month, or match criteria filters.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex justify-between items-center sm:justify-between border-t border-slate-100 dark:border-slate-900 pt-3">
+            <span className="text-[10px] font-medium text-muted-foreground">
+              Showing {filteredAndSortedUnpaid.length} of {unpaidStudents?.length ?? 0} unpaid students
+            </span>
+            <Button onClick={() => setUnpaidDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
