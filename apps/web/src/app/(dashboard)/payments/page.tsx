@@ -18,7 +18,7 @@ import {
   Eye,
   Trash2,
 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api } from '@/lib/api';
@@ -47,8 +47,14 @@ import { usePageRole } from '../RoleContext';
 
 
 const manualPaymentSchema = z.object({
-  studentId: z.string().min(1, 'Please select a student'),
-  amount: z.number().positive('Amount must be a positive number'),
+  students: z.array(
+    z.object({
+      studentId: z.string().min(1, 'Please select a student'),
+      amount: z.number().positive('Amount must be a positive number'),
+      name: z.string().optional(),
+      school: z.string().optional(),
+    })
+  ).min(1, 'Please select at least one student'),
   month: z.number().int().min(1).max(12),
   year: z.number().int().min(2020),
   transactionId: z.string().optional().or(z.literal('')),
@@ -137,31 +143,14 @@ export default function PaymentsPage() {
     }
   };
 
-  // Search states for manual payment dialog
+  // Search state for manual payment dialog
   const [studentSearch, setStudentSearch] = React.useState('');
-  const [selectedStudentObj, setSelectedStudentObj] = React.useState<any | null>(null);
-
-  const handleReconcileManually = (row: any) => {
-    manualForm.reset({
-      studentId: '',
-      amount: row.credit ? parseFloat(row.credit) : 0,
-      month: now.getMonth() + 1,
-      year: now.getFullYear(),
-      method: 'UPI',
-      transactionId: row.transactionId || '',
-      remarks: row.description || '',
-    });
-    setStudentSearch('');
-    setSelectedStudentObj(null);
-    setUploadOpen(false);
-    setImportSummary(null);
-    setManualOpen(true);
-  };
 
   // Forms setup
   const manualForm = useForm<ManualPaymentFormValues>({
     resolver: zodResolver(manualPaymentSchema),
     defaultValues: {
+      students: [],
       month: now.getMonth() + 1,
       year: now.getFullYear(),
       method: 'UPI',
@@ -170,13 +159,34 @@ export default function PaymentsPage() {
     },
   });
 
+  const { fields, append, remove } = useFieldArray({
+    control: manualForm.control,
+    name: 'students',
+  });
+
   const manualMonth = manualForm.watch('month');
   const manualYear = manualForm.watch('year');
+  const watchStudents = manualForm.watch('students') || [];
+  const totalAmount = watchStudents.reduce((sum, s) => sum + (parseFloat(s.amount as any) || 0), 0);
+
+  const handleReconcileManually = (row: any) => {
+    manualForm.reset({
+      students: [],
+      month: now.getMonth() + 1,
+      year: now.getFullYear(),
+      method: 'UPI',
+      transactionId: row.transactionId || '',
+      remarks: row.description || '',
+    });
+    setStudentSearch('');
+    setUploadOpen(false);
+    setImportSummary(null);
+    setManualOpen(true);
+  };
 
   const handleOpenManualPayment = () => {
     manualForm.reset({
-      studentId: '',
-      amount: 0,
+      students: [],
       month: now.getMonth() + 1,
       year: now.getFullYear(),
       method: 'UPI',
@@ -184,13 +194,11 @@ export default function PaymentsPage() {
       transactionId: '',
     });
     setStudentSearch('');
-    setSelectedStudentObj(null);
     setManualOpen(true);
   };
 
   React.useEffect(() => {
-    manualForm.setValue('studentId', '');
-    setSelectedStudentObj(null);
+    manualForm.setValue('students', []);
     setStudentSearch('');
   }, [manualMonth, manualYear, manualForm]);
 
@@ -248,25 +256,37 @@ export default function PaymentsPage() {
   }, [students, studentSearch]);
 
   const handleSelectStudent = (student: any) => {
-    setSelectedStudentObj(student);
-    manualForm.setValue('studentId', student.id);
-    manualForm.clearErrors('studentId');
-    setStudentSearch('');
-  };
-
-  const handleClearStudent = () => {
-    setSelectedStudentObj(null);
-    manualForm.setValue('studentId', '');
+    const currentFields = manualForm.getValues('students') || [];
+    const exists = currentFields.some((f) => f.studentId === student.id);
+    if (!exists) {
+      append({
+        studentId: student.id,
+        amount: student.monthlyFee / 100, // Default to their monthly fee (Rupees)
+        name: student.name,
+        school: student.school,
+      });
+    }
     setStudentSearch('');
   };
 
   // 3. Manual Payment Mutation
   const manualMutation = useMutation({
     mutationFn: async (values: ManualPaymentFormValues) => {
-      await api.post('/payments', values);
+      const payload = {
+        students: values.students.map((s) => ({
+          studentId: s.studentId,
+          amount: s.amount,
+        })),
+        month: values.month,
+        year: values.year,
+        method: values.method,
+        transactionId: values.transactionId || undefined,
+        remarks: values.remarks || undefined,
+      };
+      await api.post('/payments', payload);
     },
     onSuccess: () => {
-      toast({ title: 'Success', description: 'Manual payment recorded successfully', variant: 'success' });
+      toast({ title: 'Success', description: 'Manual payments recorded successfully', variant: 'success' });
       queryClient.invalidateQueries({ queryKey: ['payments-list'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       queryClient.invalidateQueries({ queryKey: ['monthly-chart'] });
@@ -795,81 +815,101 @@ export default function PaymentsPage() {
             className="space-y-4"
           >
             <div className="space-y-3">
-              <div className="space-y-1 relative">
-                <label className="text-xs font-bold text-muted-foreground">Select Student</label>
+              <div className="space-y-3 relative">
+                <label className="text-xs font-bold text-muted-foreground">Select Students</label>
                 
-                {selectedStudentObj ? (
-                  // Selected Student Card
-                  <div className="flex items-center justify-between p-3 border border-slate-200 dark:border-slate-800 rounded-lg bg-slate-50 dark:bg-slate-900/40">
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-semibold text-foreground">
-                        {selectedStudentObj.name} ({selectedStudentObj.school})
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Parent: {selectedStudentObj.parentName || 'N/A'} • Class: {selectedStudentObj.class}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Mobile: {selectedStudentObj.fatherMobile} {selectedStudentObj.motherMobile ? `/ ${selectedStudentObj.motherMobile}` : ''}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 text-xs text-destructive hover:bg-destructive/10"
-                      onClick={handleClearStudent}
-                    >
-                      Change
-                    </Button>
+                {/* Search input to select students */}
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search student by name or mobile number..."
+                      className="pl-9 bg-card text-foreground"
+                      value={studentSearch}
+                      onChange={(e) => setStudentSearch(e.target.value)}
+                    />
                   </div>
-                ) : (
-                  // Search Interface
-                  <div className="space-y-2">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search by name, school, or mobile number..."
-                        className="pl-9 bg-card text-foreground"
-                        value={studentSearch}
-                        onChange={(e) => setStudentSearch(e.target.value)}
-                      />
+                  
+                  {/* Suggestions list when typing */}
+                  {studentSearch.trim() !== '' && students && (
+                    <div className="absolute left-0 right-0 border border-slate-200 dark:border-slate-800 rounded-md bg-card max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-900 shadow-lg z-50">
+                      {filteredStudents.length > 0 ? (
+                        filteredStudents.slice(0, 5).map((s: any) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => handleSelectStudent(s)}
+                            className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-900/50 text-xs transition-colors flex flex-col gap-0.5"
+                          >
+                            <div className="flex justify-between font-semibold text-foreground">
+                              <span>{s.name} ({s.school})</span>
+                              <span className="text-muted-foreground font-normal text-[10px]">Class {s.class}</span>
+                            </div>
+                            <div className="text-muted-foreground flex justify-between text-[11px]">
+                              <span>Parent: {s.parentName}</span>
+                              <span>Mobile: {s.fatherMobile}</span>
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="p-3 text-xs text-center text-muted-foreground">
+                          No unpaid students match search
+                        </p>
+                      )}
                     </div>
-                    
-                    {/* Suggestions list */}
-                    {students && (
-                      <div className="border border-slate-200 dark:border-slate-800 rounded-md bg-card max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-900 shadow-sm z-50">
-                        {filteredStudents.length > 0 ? (
-                          filteredStudents.slice(0, 5).map((s: any) => (
-                            <button
-                              key={s.id}
+                  )}
+                </div>
+
+                {/* List of selected students */}
+                {fields.length > 0 && (
+                  <div className="space-y-2 border border-slate-100 dark:border-slate-900 rounded-lg p-3 bg-slate-50/50 dark:bg-slate-950/20 max-h-60 overflow-y-auto">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                      Selected Students & Amounts
+                    </p>
+                    <div className="space-y-2">
+                      {fields.map((field, index) => (
+                        <div
+                          key={field.id}
+                          className="flex items-center justify-between p-2 rounded-md bg-card border border-slate-200 dark:border-slate-800 text-xs gap-2"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-foreground truncate">
+                              {field.name}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              {field.school}
+                            </p>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground font-semibold">₹</span>
+                            <Input
+                              type="number"
+                              placeholder="Amount"
+                              className="h-8 w-20 text-right p-1 text-xs"
+                              {...manualForm.register(`students.${index}.amount` as const, { valueAsNumber: true })}
+                            />
+                            <Button
                               type="button"
-                              onClick={() => handleSelectStudent(s)}
-                              className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-900/50 text-xs transition-colors flex flex-col gap-0.5"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                              onClick={() => remove(index)}
                             >
-                              <div className="flex justify-between font-semibold text-foreground">
-                                <span>{s.name} ({s.school})</span>
-                                <span className="text-muted-foreground font-normal text-[10px]">Class {s.class}</span>
-                              </div>
-                              <div className="text-muted-foreground flex justify-between text-[11px]">
-                                <span>Parent: {s.parentName}</span>
-                                <span>Mobile: {s.fatherMobile}</span>
-                              </div>
-                            </button>
-                          ))
-                        ) : (
-                          <p className="p-3 text-xs text-center text-muted-foreground">
-                            No unpaid students match search
-                          </p>
-                        )}
-                      </div>
-                    )}
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
                 
-                {/* Hidden input to hook up with react-hook-form schema validator */}
-                <input type="hidden" {...manualForm.register('studentId')} />
-                {manualForm.formState.errors.studentId && (
-                  <p className="text-[10px] text-red-500">{manualForm.formState.errors.studentId.message}</p>
+                {manualForm.formState.errors.students && (
+                  <p className="text-[10px] text-red-500">
+                    {manualForm.formState.errors.students.message || 
+                     manualForm.formState.errors.students.root?.message}
+                  </p>
                 )}
               </div>
 
@@ -905,15 +945,10 @@ export default function PaymentsPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-muted-foreground">Amount Paid (INR)</label>
-                  <Input
-                    type="number"
-                    placeholder="E.g. 2500"
-                    {...manualForm.register('amount', { valueAsNumber: true })}
-                  />
-                  {manualForm.formState.errors.amount && (
-                    <p className="text-[10px] text-red-500">{manualForm.formState.errors.amount.message}</p>
-                  )}
+                  <label className="text-xs font-bold text-muted-foreground">Total Amount (INR)</label>
+                  <div className="w-full p-2 border rounded-md bg-muted text-muted-foreground font-semibold">
+                    ₹ {totalAmount.toFixed(0)}
+                  </div>
                 </div>
 
                 <div className="space-y-1">

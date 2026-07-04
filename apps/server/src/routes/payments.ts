@@ -36,8 +36,10 @@ const upload = multer({
 // VALIDATION SCHEMAS
 // ─────────────────────────────────────────────────────────────────────────────
 const manualPaymentSchema = z.object({
-  studentId: z.string().min(1, 'Student ID is required'),
-  amount: z.number().positive('Amount must be a positive number'),
+  students: z.array(z.object({
+    studentId: z.string().min(1, 'Student ID is required'),
+    amount: z.number().positive('Amount must be a positive number'),
+  })).min(1, 'At least one student must be allocated'),
   month: z.number().int().min(1).max(12, 'Month must be between 1 and 12'),
   year: z.number().int().min(2020, 'Year must be at least 2020'),
   transactionId: z.string().optional().nullable().or(z.literal('')),
@@ -144,8 +146,7 @@ paymentsRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const body = manualPaymentSchema.parse(req.body) as {
-        studentId: string;
-        amount: number;
+        students: { studentId: string; amount: number }[];
         month: number;
         year: number;
         transactionId?: string | null;
@@ -153,117 +154,126 @@ paymentsRouter.post(
         remarks?: string | null;
       };
 
-      // Verify student exists
-      const student = await prisma.student.findUnique({
-        where: { id: body.studentId },
-      });
-      if (!student) {
-        res.status(404).json({ success: false, error: 'Student not found' });
-        return;
-      }
-
-      // Convert amount to paise
-      const amountPaise = Math.round(body.amount * 100);
-
-      // Check duplicate payment
-      const existingPayment = await prisma.payment.findUnique({
-        where: {
-          studentId_month_year: {
-            studentId: body.studentId,
-            month: body.month,
-            year: body.year,
-          },
-        },
-      });
-
-      if (existingPayment && existingPayment.status === PaymentStatus.PAID) {
-        res.status(400).json({
-          success: false,
-          error: `Payment already recorded for student this month: ${body.month}/${body.year}`,
-        });
-        return;
-      }
-
       const actualNow = new Date();
+      const results: any[] = [];
 
-      // Create payment and update fee schedules
-      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // If remarks contain a raw UPI description string, parse it to extract the parent name
-        if (body.remarks && body.remarks.trim().toUpperCase().startsWith('UPI/')) {
-          const { senderName } = parseUPIDescription(body.remarks);
-          if (senderName && (!student.parentName || student.parentName.trim() === '' || student.parentName.toLowerCase().includes('parent'))) {
-            await tx.student.update({
-              where: { id: student.id },
-              data: { parentName: senderName },
-            });
-            logger.info(`Automatically learned parent name "${senderName}" for student ${student.name}`);
+      // We will process all students in a transaction
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        for (const alloc of body.students) {
+          // Verify student exists
+          const student = await tx.student.findUnique({
+            where: { id: alloc.studentId },
+          });
+          if (!student) {
+            throw new Error(`Student not found for ID: ${alloc.studentId}`);
           }
-        }
 
-        const payment = await tx.payment.create({
-          data: {
-            studentId: body.studentId,
-            amount: amountPaise,
-            month: body.month,
-            year: body.year,
-            paidAt: actualNow,
-            transactionId: body.transactionId || null,
-            method: body.method,
-            status: PaymentStatus.PAID,
-            remarks: body.remarks || 'Manual Payment Entry',
-            createdBy: req.user?.id,
-          },
-        });
+          // Convert amount to paise
+          const amountPaise = Math.round(alloc.amount * 100);
 
-        await tx.feeSchedule.upsert({
-          where: {
-            studentId_month_year: {
-              studentId: body.studentId,
+          // Check duplicate payment
+          const existingPayment = await tx.payment.findUnique({
+            where: {
+              studentId_month_year: {
+                studentId: alloc.studentId,
+                month: body.month,
+                year: body.year,
+              },
+            },
+          });
+
+          if (existingPayment && existingPayment.status === PaymentStatus.PAID) {
+            throw new Error(`Payment already recorded for student ${student.name} this month`);
+          }
+
+          // If remarks contain a raw UPI description string, parse it to extract the parent name
+          if (body.remarks && body.remarks.trim().toUpperCase().startsWith('UPI/')) {
+            const { senderName } = parseUPIDescription(body.remarks);
+            if (senderName && (!student.parentName || student.parentName.trim() === '' || student.parentName.toLowerCase().includes('parent'))) {
+              await tx.student.update({
+                where: { id: student.id },
+                data: { parentName: senderName },
+              });
+              logger.info(`Automatically learned parent name "${senderName}" for student ${student.name}`);
+            }
+          }
+
+          // Format transaction ID to prevent unique constraint conflicts for collective payments
+          const finalTxId = body.transactionId
+            ? (body.students.length > 1
+                ? `${body.transactionId}_${alloc.studentId}`
+                : body.transactionId)
+            : null;
+
+          const payment = await tx.payment.create({
+            data: {
+              studentId: alloc.studentId,
+              amount: amountPaise,
               month: body.month,
               year: body.year,
+              paidAt: actualNow,
+              transactionId: finalTxId,
+              method: body.method,
+              status: PaymentStatus.PAID,
+              remarks: body.remarks || 'Manual Payment Entry',
+              createdBy: req.user?.id,
             },
-          },
-          update: {
-            isPaid: true,
-            paidAt: actualNow,
-          },
-          create: {
-            studentId: body.studentId,
-            month: body.month,
-            year: body.year,
-            dueDate: new Date(Date.UTC(body.year, body.month - 1, 10, 4, 30, 0)),
-            amount: amountPaise,
-            isPaid: true,
-            paidAt: actualNow,
-          },
+          });
+
+          await tx.feeSchedule.upsert({
+            where: {
+              studentId_month_year: {
+                studentId: alloc.studentId,
+                month: body.month,
+                year: body.year,
+              },
+            },
+            update: {
+              isPaid: true,
+              paidAt: actualNow,
+            },
+            create: {
+              studentId: alloc.studentId,
+              month: body.month,
+              year: body.year,
+              dueDate: new Date(Date.UTC(body.year, body.month - 1, 10, 4, 30, 0)),
+              amount: amountPaise,
+              isPaid: true,
+              paidAt: actualNow,
+            },
+          });
+
+          results.push({ payment, student });
+        }
+      });
+
+      // After transaction completes, run side effects (outside transaction to avoid blocking DB)
+      for (const item of results) {
+        // Write Audit Log
+        createAuditLog(req.user?.id || null, 'MANUAL_PAYMENT', 'Payment', item.payment.id, {
+          studentId: item.payment.studentId,
+          amount: item.payment.amount,
+          month: body.month,
+          year: body.year,
+        }).catch((err) => logger.error('Audit log failed:', err));
+
+        // Generate receipt
+        generateReceipt(item.payment.id).catch((err) => {
+          logger.error(`Receipt generation failed in manual entry for paymentId ${item.payment.id}:`, err);
         });
 
-        return payment;
-      });
-
-      // Write Audit Log
-      await createAuditLog(req.user?.id || null, 'MANUAL_PAYMENT', 'Payment', result.id, {
-        studentId: body.studentId,
-        amount: amountPaise,
-        month: body.month,
-        year: body.year,
-      });
-
-      // Trigger Side-effects
-      generateReceipt(result.id).catch((err) => {
-        logger.error(`Receipt generation failed in manual entry for paymentId ${result.id}:`, err);
-      });
-
-      sendConfirmation(student.id, result.id).catch((err) => {
-        logger.error(`WhatsApp confirmation failed in manual entry for studentId ${student.id}:`, err);
-      });
+        // Send WhatsApp confirmation
+        sendConfirmation(item.student.id, item.payment.id).catch((err) => {
+          logger.error(`WhatsApp confirmation failed in manual entry for studentId ${item.student.id}:`, err);
+        });
+      }
 
       res.status(201).json({
         success: true,
-        data: result,
+        data: results.map((r) => r.payment),
       });
-    } catch (error) {
-      next(error);
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message || 'Failed to record manual payments' });
     }
   },
 );
