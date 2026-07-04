@@ -58,6 +58,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Touch swipe to close mobile menu
   const touchStartX = React.useRef<number>(0);
@@ -71,6 +76,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Redirect if not logged in
   React.useEffect(() => {
+    if (!mounted) return;
+
     if (!accessToken) {
       router.push('/login');
       return;
@@ -79,18 +86,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (role === 'DRIVER') {
       router.replace('/driver');
     }
-  }, [accessToken, role, router]);
+  }, [mounted, accessToken, role, router]);
 
   // Redirect if current page is forbidden for this role
   React.useEffect(() => {
-    if (!role || role === 'DRIVER') return;
+    if (!mounted || !role || role === 'DRIVER') return;
     const currentPath = ALL_NAV_ITEMS.find(
       (item) => pathname === item.href || pathname?.startsWith(item.href + '/')
     );
     if (currentPath && !canAccess(role as AppRole, currentPath.path)) {
       router.replace('/dashboard');
     }
-  }, [pathname, role, router]);
+  }, [mounted, pathname, role, router]);
 
   // WhatsApp status poll
   const { data: waStatus } = useQuery({
@@ -121,7 +128,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     ? ALL_NAV_ITEMS.filter((item) => canAccess(role as AppRole, item.path))
     : ALL_NAV_ITEMS;
 
-  if (!accessToken || !user || role === 'DRIVER') {
+  if (!mounted || !accessToken || !user || role === 'DRIVER') {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-foreground">
         <div className="flex flex-col items-center gap-4">
