@@ -42,7 +42,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { usePageRole } from '../layout';
+import { usePageRole } from '../RoleContext';
 
 // Validation schema
 const routeSchema = z.object({

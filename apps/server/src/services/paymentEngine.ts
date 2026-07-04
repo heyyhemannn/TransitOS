@@ -45,15 +45,48 @@ function extractSenderName(description: string): string {
   return desc; // Fallback to full description
 }
 
+interface ParsedUPI {
+  senderName: string;
+  upiRemark?: string;
+}
+
+export function parseUPIDescription(description: string): ParsedUPI {
+  const desc = description.trim();
+  
+  if (desc.toUpperCase().startsWith('UPI/')) {
+    const parts = desc.split('/').map(p => p.trim()).filter(Boolean);
+    if (parts.length >= 4) {
+      const senderName = parts[3];
+      let upiRemark = '';
+      if (parts.length >= 6) {
+        upiRemark = parts[5];
+      } else if (parts.length === 5 && !['UPI', 'PAYMENT'].includes(parts[4].toUpperCase())) {
+        upiRemark = parts[4];
+      }
+      
+      return {
+        senderName,
+        upiRemark: upiRemark && !['UPI', 'PAYMENT'].includes(upiRemark.toUpperCase()) ? upiRemark : undefined
+      };
+    }
+  }
+  
+  const match = desc.match(/(?:payment\s+from|received\s+from|from)\s+(.+)/i);
+  return {
+    senderName: match && match[1] ? match[1].trim() : desc
+  };
+}
+
 /**
  * Fuzzy-matches an incoming payment to a student using amount and name similarity.
- * On match, records the payment, marks the fee schedule as paid, and triggers services.
+ * On match, records the payment as PENDING (under review) for manual admin tally.
  */
 export async function matchPayment(
   transactionId: string | null,
   amount: number, // in paise
-  senderName: string,
+  senderNameOrDescription: string,
 ): Promise<MatchResult> {
+  const { senderName, upiRemark } = parseUPIDescription(senderNameOrDescription);
   const cleanedSender = senderName.trim();
 
   // 1. Duplicate check
@@ -86,10 +119,15 @@ export async function matchPayment(
       score += 50;
     }
 
-    // Name Match: compare senderName to student name and parent name
-    const parentSim = getSimilarity(cleanedSender, student.parentName);
-    const studentSim = getSimilarity(cleanedSender, student.name);
-    const bestSim = Math.max(parentSim, studentSim);
+    // Name Match: compare senderName and upiRemark to student name and parent name
+    const parentSim = getSimilarity(cleanedSender, student.parentName || '');
+    const studentSim = getSimilarity(cleanedSender, student.name || '');
+    let bestSim = Math.max(parentSim, studentSim);
+
+    if (upiRemark) {
+      const remarkSim = getSimilarity(upiRemark, student.name || '');
+      bestSim = Math.max(bestSim, remarkSim);
+    }
 
     if (bestSim >= 0.8) {
       score += 40;
@@ -132,9 +170,8 @@ export async function matchPayment(
   const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const month = nowIST.getMonth() + 1;
   const year = nowIST.getFullYear();
-  const actualNow = new Date();
 
-  // Check if already paid
+  // Check if already has a payment record (PAID or PENDING)
   const existingMonthPayment = await prisma.payment.findUnique({
     where: {
       studentId_month_year: {
@@ -145,68 +182,34 @@ export async function matchPayment(
     },
   });
 
-  if (existingMonthPayment && existingMonthPayment.status === PaymentStatus.PAID) {
-    logger.warn(`Matched student ${matchedStudent.name} (${matchedStudent.id}) has already paid for month ${month}/${year}`);
+  if (existingMonthPayment) {
+    logger.warn(`Matched student ${matchedStudent.name} (${matchedStudent.id}) already has a payment record for month ${month}/${year} with status: ${existingMonthPayment.status}`);
     return { matched: false, reason: 'ALREADY_PAID' };
   }
 
-  // 6. DB Updates & Transaction Triggers
+  // 6. DB Updates (Record as PENDING for review)
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    // Record payment
     const payment = await tx.payment.create({
       data: {
         studentId: matchedStudent.id,
         amount,
         month,
         year,
-        paidAt: actualNow,
+        paidAt: null, // pending, so not paid yet
         transactionId,
         method: PaymentMethod.UPI,
-        status: PaymentStatus.PAID,
+        status: PaymentStatus.PENDING,
         remarks: `Auto-matched from sender ${cleanedSender} (score: ${bestCandidate.score})`,
-      },
-    });
-
-    // Update schedule
-    await tx.feeSchedule.upsert({
-      where: {
-        studentId_month_year: {
-          studentId: matchedStudent.id,
-          month,
-          year,
-        },
-      },
-      update: {
-        isPaid: true,
-        paidAt: actualNow,
-      },
-      create: {
-        studentId: matchedStudent.id,
-        month,
-        year,
-        dueDate: new Date(Date.UTC(year, month - 1, 10, 4, 30, 0)),
-        amount,
-        isPaid: true,
-        paidAt: actualNow,
       },
     });
 
     return payment;
   });
 
-  logger.info(`Successfully auto-matched payment of paise ${amount} (Txn: ${transactionId}) to student ${matchedStudent.name}`);
-
-  // Trigger non-blocking async side-effects
-  generateReceipt(result.id).catch((err) => {
-    logger.error(`Receipt generation failed in auto-match for paymentId ${result.id}:`, err);
-  });
-
-  sendConfirmation(matchedStudent.id, result.id).catch((err) => {
-    logger.error(`WhatsApp confirmation failed in auto-match for studentId ${matchedStudent.id}:`, err);
-  });
+  logger.info(`Successfully auto-matched payment of paise ${amount} (Txn: ${transactionId}) to student ${matchedStudent.name} as PENDING`);
 
   // Write audit log
-  await createAuditLog(null, 'AUTO_MATCH_PAYMENT', 'Payment', result.id, {
+  await createAuditLog(null, 'AUTO_MATCH_PAYMENT_PENDING', 'Payment', result.id, {
     transactionId,
     amount,
     senderName: cleanedSender,
@@ -226,6 +229,89 @@ export async function matchPayment(
 /**
  * Parses a PhonePe exported CSV buffer and processes matches row-by-row.
  */
+function resolveColumns(records: any[]): {
+  creditKey: string | null;
+  descriptionKey: string | null;
+  refKey: string | null;
+  dateKey: string | null;
+} {
+  if (records.length === 0) {
+    return { creditKey: null, descriptionKey: null, refKey: null, dateKey: null };
+  }
+
+  const sample = records[0];
+  const keys = Object.keys(sample);
+  const clean = (s: string) => s.trim().toLowerCase();
+
+  // 1. Find Description/Particulars column
+  const descriptionKey = keys.find(k => 
+    ['description', 'particulars', 'particular', 'narrative', 'remarks', 'remark'].includes(clean(k))
+  ) || null;
+
+  // 2. Find Date column
+  const dateKey = keys.find(k => 
+    ['date', 'tran date', 'transaction date', 'post date'].includes(clean(k))
+  ) || null;
+
+  // 3. Find Reference number column (if any)
+  const refKey = keys.find(k => 
+    ['reference no', 'reference number', 'ref no', 'ref number', 'transaction id', 'txn id', 'urn'].includes(clean(k))
+  ) || null;
+
+  // 4. Find Balance column to calibrate if possible
+  const balanceKey = keys.find(k => 
+    ['balance', 'bal', 'running balance'].includes(clean(k))
+  );
+
+  let creditKey: string | null = null;
+
+  if (balanceKey && records.length > 1) {
+    // Try to calibrate using balance differences
+    for (let i = 1; i < Math.min(records.length, 10); i++) {
+      const prevBal = parseFloat(String(records[i-1][balanceKey]).replace(/,/g, ''));
+      const currBal = parseFloat(String(records[i][balanceKey]).replace(/,/g, ''));
+      if (isNaN(prevBal) || isNaN(currBal)) continue;
+
+      const diff = currBal - prevBal;
+      if (Math.abs(diff) < 0.01) continue;
+
+      // Find which column matches this diff
+      for (const key of keys) {
+        if (key === balanceKey) continue;
+        const val = parseFloat(String(records[i][key]).replace(/,/g, ''));
+        if (isNaN(val)) continue;
+
+        if (diff > 0 && Math.abs(val - diff) < 0.05) {
+          // Found the column that increases balance (Deposit)
+          creditKey = key;
+          break;
+        }
+      }
+      if (creditKey) break;
+    }
+  }
+
+  // Fallback if calibration is not possible
+  if (!creditKey) {
+    creditKey = keys.find(k => ['credit', 'cr', 'deposit', 'credit amount', 'deposits'].includes(clean(k))) || null;
+    
+    // If not found, and we have 'dr' and 'cr', check if standard
+    if (!creditKey) {
+      const hasDR = keys.some(k => clean(k) === 'dr');
+      const hasCR = keys.some(k => clean(k) === 'cr');
+      if (hasDR && hasCR) {
+        creditKey = keys.find(k => clean(k) === 'cr') || null;
+      }
+    }
+  }
+
+  return { creditKey, descriptionKey, refKey, dateKey };
+}
+
+/**
+ * Parses an exported bank statement CSV buffer and processes matches row-by-row.
+ * Supports PhonePe, Axis, and other standard formats by dynamically mapping columns.
+ */
 export async function importCSV(buffer: Buffer): Promise<{
   total: number;
   matched: number;
@@ -239,7 +325,9 @@ export async function importCSV(buffer: Buffer): Promise<{
     columns: true,
     skip_empty_lines: true,
     trim: true,
-  }) as CSVRow[];
+  }) as any[];
+
+  const { creditKey, descriptionKey, refKey, dateKey } = resolveColumns(records);
 
   let total = 0;
   let matched = 0;
@@ -248,32 +336,58 @@ export async function importCSV(buffer: Buffer): Promise<{
   let errors = 0;
   const unmatchedRows: any[] = [];
 
+  // Log detected columns for debugging
+  logger.info(`Detected CSV columns: Credit=${creditKey}, Description=${descriptionKey}, Ref=${refKey}, Date=${dateKey}`);
+
+  if (!creditKey || !descriptionKey) {
+    logger.warn('Could not identify credit or description columns in CSV file.');
+    return { total, matched, unmatched, duplicates, errors, unmatchedRows };
+  }
+
   for (const record of records) {
-    // 1. Skip non-credit rows
-    const creditStr = record.Credit;
-    if (!creditStr || creditStr === '0' || creditStr === '0.00') {
+    const creditStr = record[creditKey];
+    if (!creditStr || creditStr === '0' || creditStr === '0.00' || creditStr.trim() === '') {
+      continue;
+    }
+
+    const cleanCredit = parseFloat(creditStr.replace(/,/g, ''));
+    if (isNaN(cleanCredit) || cleanCredit <= 0) {
       continue;
     }
 
     total++;
-    const amount = Math.round(parseFloat(creditStr.replace(/,/g, '')) * 100);
-    const transactionId = record['Reference No']?.trim();
-    const senderName = extractSenderName(record.Description || '');
+    const amount = Math.round(cleanCredit * 100);
+    const description = record[descriptionKey] || '';
+    
+    let transactionId = refKey ? record[refKey]?.trim() : null;
+    
+    // Extract transaction ID from description if column is absent (common in Axis/bank statement particulars)
+    if (!transactionId && description) {
+      if (description.toUpperCase().startsWith('UPI/')) {
+        const parts = description.split('/').map((p: string) => p.trim()).filter(Boolean);
+        if (parts.length >= 3) {
+          transactionId = parts[2];
+        }
+      }
+    }
+
+    const dateStr = dateKey ? record[dateKey] : '';
 
     try {
-      const matchResult = await matchPayment(transactionId, amount, senderName);
+      const matchResult = await matchPayment(transactionId, amount, description);
       if (matchResult.matched) {
         matched++;
       } else if (matchResult.reason === 'DUPLICATE') {
         duplicates++;
       } else {
         unmatched++;
+        const parsed = parseUPIDescription(description);
         unmatchedRows.push({
-          date: record.Date,
+          date: dateStr,
           credit: creditStr,
           transactionId,
-          description: record.Description,
-          senderName,
+          description,
+          senderName: parsed.senderName,
           topCandidates: matchResult.topCandidates,
         });
       }

@@ -282,28 +282,8 @@ whatsappRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-      const currentMonth = nowIST.getMonth() + 1;
-      const currentYear = nowIST.getFullYear();
-
-      // Find all active students
-      const activeStudents = await prisma.student.findMany({
-        where: { status: StudentStatus.ACTIVE },
-      });
-
-      // Find all paid schedules for this month
-      const paidSchedules = await prisma.feeSchedule.findMany({
-        where: {
-          month: currentMonth,
-          year: currentYear,
-          isPaid: true,
-        },
-        select: { studentId: true },
-      });
-
-      const paidStudentIds = new Set(paidSchedules.map((s) => s.studentId));
-
-      // Filter to unpaid active students
-      const unpaidStudents = activeStudents.filter((s) => !paidStudentIds.has(s.id));
+      // Get all unpaid active students using the robust helper function
+      const unpaidStudents = await getUnpaidStudents();
 
       if (unpaidStudents.length === 0) {
         res.json({
@@ -380,7 +360,7 @@ whatsappRouter.post(
             parentName,
             studentName,
             amount: amountRupees,
-            month: `${monthName} ${currentYear}`,
+            month: `${monthName} ${nowIST.getFullYear()}`,
             upiId,
             businessName,
             webAppUrl,
@@ -492,27 +472,15 @@ whatsappRouter.post(
         return;
       }
 
-      let studentIds: string[] = [];
+      const unpaidStudents = await getUnpaidStudents([school]);
+      const studentIds = unpaidStudents.map(s => s.id);
       let typeToSend = reminderType;
       let extraVars: Record<string, string> | undefined = undefined;
 
       if (customText) {
-        // Fetch all active students of this school
-        const activeStudents = await prisma.student.findMany({
-          where: {
-            school,
-            status: StudentStatus.ACTIVE,
-          },
-          select: { id: true },
-        });
-        studentIds = activeStudents.map(s => s.id);
         typeToSend = MessageType.BROADCAST;
         extraVars = { message: customText };
       } else {
-        // Standard reminder flow (only to unpaid students)
-        const unpaidStudents = await getUnpaidStudents([school]);
-        studentIds = unpaidStudents.map(s => s.id);
-
         // If it is REMINDER_3 or FINAL, mark overdue in DB
         if (reminderType === MessageType.REMINDER_3 || reminderType === MessageType.FINAL) {
           const now = new Date();

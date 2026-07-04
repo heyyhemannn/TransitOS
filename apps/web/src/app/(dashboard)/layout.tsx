@@ -29,18 +29,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { useTheme } from 'next-themes';
 
-// ─── Role Context ──────────────────────────────────────────────────────────────
-interface RoleContextValue {
-  canMutate: boolean;
-  isAdmin: boolean;
-  isManager: boolean;
-}
-export const RoleContext = React.createContext<RoleContextValue>({
-  canMutate: true,
-  isAdmin: false,
-  isManager: false,
-});
-export const usePageRole = () => React.useContext(RoleContext);
+import { RoleContext } from './RoleContext';
 
 // ─── Navigation config ─────────────────────────────────────────────────────────
 interface SidebarItem {

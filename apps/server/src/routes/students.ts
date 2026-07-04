@@ -102,12 +102,15 @@ studentsRouter.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
-      const search = (req.query.search as string) || '';
+      const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit as string) || 20));
+      const search = ((req.query.search as string) || '').trim();
       const school = (req.query.school as string) || '';
       const routeId = (req.query.routeId as string) || '';
       const statusInput = (req.query.status as string) || 'ACTIVE';
       const status = statusInput === 'INACTIVE' ? StudentStatus.INACTIVE : StudentStatus.ACTIVE;
+
+      const unpaidMonth = req.query.unpaidMonth ? parseInt(req.query.unpaidMonth as string) : undefined;
+      const unpaidYear = req.query.unpaidYear ? parseInt(req.query.unpaidYear as string) : undefined;
 
       const skip = (page - 1) * limit;
 
@@ -121,11 +124,38 @@ studentsRouter.get(
         where.routeId = routeId;
       }
 
+      if (unpaidMonth && unpaidYear) {
+        where.NOT = {
+          OR: [
+            {
+              payments: {
+                some: {
+                  month: unpaidMonth,
+                  year: unpaidYear,
+                  status: 'PAID',
+                },
+              },
+            },
+            {
+              feeSchedules: {
+                some: {
+                  month: unpaidMonth,
+                  year: unpaidYear,
+                  isPaid: true,
+                },
+              },
+            },
+          ],
+        };
+      }
+
       if (search) {
         where.OR = [
           { name: { contains: search, mode: 'insensitive' } },
           { parentName: { contains: search, mode: 'insensitive' } },
           { fatherMobile: { contains: search } },
+          { motherMobile: { contains: search } },
+          { whatsappNumber: { contains: search } },
         ];
       }
 

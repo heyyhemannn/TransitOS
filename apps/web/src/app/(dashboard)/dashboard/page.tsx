@@ -39,7 +39,7 @@ const formatCurrency = (paise: number) => {
   }).format(paise / 100);
 };
 
-import { usePageRole } from '../layout';
+import { usePageRole } from '../RoleContext';
 
 export default function DashboardPage() {
   const { toast } = useToast();

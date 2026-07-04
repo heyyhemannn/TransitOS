@@ -6,23 +6,38 @@ import { MessageType } from '@prisma/client';
 // Helper: get all unpaid active students for current month, optionally 
 // filtered by school name(s)
 export async function getUnpaidStudents(schools?: string[]) {
-  const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
+  const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const month = nowIST.getMonth() + 1;
+  const year = nowIST.getFullYear();
 
   return prisma.student.findMany({
     where: {
       status: 'ACTIVE',
       ...(schools ? { school: { in: schools } } : {}),
-      feeSchedules: {
-        some: {
-          month,
-          year,
-          isPaid: false,
-        },
+      NOT: {
+        OR: [
+          {
+            payments: {
+              some: {
+                month,
+                year,
+                status: 'PAID',
+              },
+            },
+          },
+          {
+            feeSchedules: {
+              some: {
+                month,
+                year,
+                isPaid: true,
+              },
+            },
+          },
+        ],
       },
     },
-    select: { id: true, name: true, school: true, parentName: true, whatsappNumber: true },
+    select: { id: true, name: true, school: true, parentName: true, whatsappNumber: true, monthlyFee: true },
   });
 }
 

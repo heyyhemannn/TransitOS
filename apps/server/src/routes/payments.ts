@@ -7,7 +7,7 @@ import { authenticate } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { UserRole, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { createAuditLog } from '../lib/audit';
-import { matchPayment, importCSV, parseSMSText } from '../services/paymentEngine';
+import { matchPayment, importCSV, parseSMSText, parseUPIDescription } from '../services/paymentEngine';
 import { getSignedUrl } from '../lib/supabase';
 import { generateReceipt } from '../services/receiptService';
 import { sendConfirmation } from '../services/whatsappService';
@@ -188,6 +188,18 @@ paymentsRouter.post(
 
       // Create payment and update fee schedules
       const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // If remarks contain a raw UPI description string, parse it to extract the parent name
+        if (body.remarks && body.remarks.trim().toUpperCase().startsWith('UPI/')) {
+          const { senderName } = parseUPIDescription(body.remarks);
+          if (senderName && (!student.parentName || student.parentName.trim() === '' || student.parentName.toLowerCase().includes('parent'))) {
+            await tx.student.update({
+              where: { id: student.id },
+              data: { parentName: senderName },
+            });
+            logger.info(`Automatically learned parent name "${senderName}" for student ${student.name}`);
+          }
+        }
+
         const payment = await tx.payment.create({
           data: {
             studentId: body.studentId,

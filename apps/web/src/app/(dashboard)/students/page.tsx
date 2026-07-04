@@ -55,7 +55,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 
-import { usePageRole } from '../layout';
+import { usePageRole } from '../RoleContext';
 
 // Form validation schema
 const studentSchema = z.object({

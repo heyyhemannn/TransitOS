@@ -43,7 +43,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/lib/auth';
 import { Card } from '@/components/ui/card';
-import { usePageRole } from '../layout';
+import { usePageRole } from '../RoleContext';
 
 
 const manualPaymentSchema = z.object({
@@ -137,6 +137,10 @@ export default function PaymentsPage() {
     }
   };
 
+  // Search states for manual payment dialog
+  const [studentSearch, setStudentSearch] = React.useState('');
+  const [selectedStudentObj, setSelectedStudentObj] = React.useState<any | null>(null);
+
   const handleReconcileManually = (row: any) => {
     manualForm.reset({
       studentId: '',
@@ -147,6 +151,8 @@ export default function PaymentsPage() {
       transactionId: row.transactionId || '',
       remarks: row.description || '',
     });
+    setStudentSearch('');
+    setSelectedStudentObj(null);
     setUploadOpen(false);
     setImportSummary(null);
     setManualOpen(true);
@@ -163,6 +169,30 @@ export default function PaymentsPage() {
       transactionId: '',
     },
   });
+
+  const manualMonth = manualForm.watch('month');
+  const manualYear = manualForm.watch('year');
+
+  const handleOpenManualPayment = () => {
+    manualForm.reset({
+      studentId: '',
+      amount: 0,
+      month: now.getMonth() + 1,
+      year: now.getFullYear(),
+      method: 'UPI',
+      remarks: '',
+      transactionId: '',
+    });
+    setStudentSearch('');
+    setSelectedStudentObj(null);
+    setManualOpen(true);
+  };
+
+  React.useEffect(() => {
+    manualForm.setValue('studentId', '');
+    setSelectedStudentObj(null);
+    setStudentSearch('');
+  }, [manualMonth, manualYear, manualForm]);
 
   // 1. Fetch historical payments
   const { data: paymentsData, isLoading: paymentsLoading } = useQuery({
@@ -189,14 +219,46 @@ export default function PaymentsPage() {
     refetchInterval: 5000,
   });
 
-  // 2. Fetch active students for dropdown selection
+  // 2. Fetch active students for dropdown selection (only unpaid for the selected billing month/year)
   const { data: students } = useQuery({
-    queryKey: ['students-selection-list'],
+    queryKey: ['students-selection-list', manualMonth, manualYear],
     queryFn: async () => {
-      const res = await api.get<{ data: { students: any[] } }>('/students?limit=200&status=ACTIVE');
+      const res = await api.get<{ data: { students: any[] } }>(
+        `/students?limit=200&status=ACTIVE&unpaidMonth=${manualMonth}&unpaidYear=${manualYear}`
+      );
       return res.data.data.students;
     },
   });
+
+  // Filter students in-memory based on name, school, class, parentName, fatherMobile, motherMobile, whatsappNumber
+  const filteredStudents = React.useMemo(() => {
+    if (!students) return [];
+    const query = studentSearch.toLowerCase().trim();
+    if (!query) return students.slice(0, 5); // show top 5 initially
+    return students.filter((s: any) => {
+      const nameMatch = s.name?.toLowerCase().includes(query);
+      const schoolMatch = s.school?.toLowerCase().includes(query);
+      const classMatch = s.class?.toLowerCase().includes(query);
+      const parentMatch = s.parentName?.toLowerCase().includes(query);
+      const fatherMatch = s.fatherMobile?.includes(query);
+      const motherMatch = s.motherMobile?.includes(query);
+      const whatsappMatch = s.whatsappNumber?.includes(query);
+      return nameMatch || schoolMatch || classMatch || parentMatch || fatherMatch || motherMatch || whatsappMatch;
+    });
+  }, [students, studentSearch]);
+
+  const handleSelectStudent = (student: any) => {
+    setSelectedStudentObj(student);
+    manualForm.setValue('studentId', student.id);
+    manualForm.clearErrors('studentId');
+    setStudentSearch('');
+  };
+
+  const handleClearStudent = () => {
+    setSelectedStudentObj(null);
+    manualForm.setValue('studentId', '');
+    setStudentSearch('');
+  };
 
   // 3. Manual Payment Mutation
   const manualMutation = useMutation({
@@ -350,7 +412,7 @@ export default function PaymentsPage() {
               Upload CSV
             </Button>
           )}
-          <Button onClick={() => setManualOpen(true)} className="gap-2 font-bold shadow-md shadow-primary/20">
+          <Button onClick={handleOpenManualPayment} className="gap-2 font-bold shadow-md shadow-primary/20">
             <Plus className="h-4 w-4" />
             Manual Payment
           </Button>
@@ -733,19 +795,79 @@ export default function PaymentsPage() {
             className="space-y-4"
           >
             <div className="space-y-3">
-              <div className="space-y-1">
+              <div className="space-y-1 relative">
                 <label className="text-xs font-bold text-muted-foreground">Select Student</label>
-                <select
-                  className="w-full p-2 border rounded-md bg-card text-foreground"
-                  {...manualForm.register('studentId')}
-                >
-                  <option value="">Choose Student...</option>
-                  {students?.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.school})
-                    </option>
-                  ))}
-                </select>
+                
+                {selectedStudentObj ? (
+                  // Selected Student Card
+                  <div className="flex items-center justify-between p-3 border border-slate-200 dark:border-slate-800 rounded-lg bg-slate-50 dark:bg-slate-900/40">
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-semibold text-foreground">
+                        {selectedStudentObj.name} ({selectedStudentObj.school})
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Parent: {selectedStudentObj.parentName || 'N/A'} • Class: {selectedStudentObj.class}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Mobile: {selectedStudentObj.fatherMobile} {selectedStudentObj.motherMobile ? `/ ${selectedStudentObj.motherMobile}` : ''}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs text-destructive hover:bg-destructive/10"
+                      onClick={handleClearStudent}
+                    >
+                      Change
+                    </Button>
+                  </div>
+                ) : (
+                  // Search Interface
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search by name, school, or mobile number..."
+                        className="pl-9 bg-card text-foreground"
+                        value={studentSearch}
+                        onChange={(e) => setStudentSearch(e.target.value)}
+                      />
+                    </div>
+                    
+                    {/* Suggestions list */}
+                    {students && (
+                      <div className="border border-slate-200 dark:border-slate-800 rounded-md bg-card max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-900 shadow-sm z-50">
+                        {filteredStudents.length > 0 ? (
+                          filteredStudents.slice(0, 5).map((s: any) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => handleSelectStudent(s)}
+                              className="w-full text-left p-2.5 hover:bg-slate-50 dark:hover:bg-slate-900/50 text-xs transition-colors flex flex-col gap-0.5"
+                            >
+                              <div className="flex justify-between font-semibold text-foreground">
+                                <span>{s.name} ({s.school})</span>
+                                <span className="text-muted-foreground font-normal text-[10px]">Class {s.class}</span>
+                              </div>
+                              <div className="text-muted-foreground flex justify-between text-[11px]">
+                                <span>Parent: {s.parentName}</span>
+                                <span>Mobile: {s.fatherMobile}</span>
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <p className="p-3 text-xs text-center text-muted-foreground">
+                            No unpaid students match search
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Hidden input to hook up with react-hook-form schema validator */}
+                <input type="hidden" {...manualForm.register('studentId')} />
                 {manualForm.formState.errors.studentId && (
                   <p className="text-[10px] text-red-500">{manualForm.formState.errors.studentId.message}</p>
                 )}

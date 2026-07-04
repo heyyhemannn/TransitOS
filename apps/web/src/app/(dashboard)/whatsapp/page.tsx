@@ -34,7 +34,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/lib/auth';
-import { usePageRole } from '../layout';
+import { usePageRole } from '../RoleContext';
 import {
   Select,
   SelectContent,
@@ -499,7 +499,7 @@ export default function WhatsAppPage() {
                 className="w-full p-3 text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/60"
               />
               <p className="text-[10px] text-muted-foreground">
-                Note: Custom broadcast messages are sent to <strong>all active students</strong> of the selected school. Standard reminders are sent only to unpaid students.
+                Note: Messages (including custom broadcasts and standard reminders) are sent only to <strong>unpaid students</strong> of the selected school.
               </p>
             </div>
           </CardContent>
