@@ -95,6 +95,9 @@ export default function StudentsPage() {
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [matrixOpen, setMatrixOpen] = React.useState(false);
+  const [reminderDialogOpen, setReminderDialogOpen] = React.useState(false);
+  const [reminderTargetStudent, setReminderTargetStudent] = React.useState<any | null>(null);
+  const [selectedReminderType, setSelectedReminderType] = React.useState<'REMINDER_1' | 'REMINDER_2' | 'REMINDER_3'>('REMINDER_1');
 
   // Selected entities
   const [selectedStudent, setSelectedStudent] = React.useState<any>(null);
@@ -215,10 +218,10 @@ export default function StudentsPage() {
 
   // 6. Broadcast Reminder Notification Mutation
   const broadcastMutation = useMutation({
-    mutationFn: async (studentId: string) => {
+    mutationFn: async ({ studentId, type }: { studentId: string; type: string }) => {
       await api.post('/whatsapp/broadcast', {
         studentIds: [studentId],
-        type: 'REMINDER_1',
+        type,
       });
     },
     onSuccess: () => {
@@ -227,6 +230,8 @@ export default function StudentsPage() {
         description: 'WhatsApp reminder successfully queued for sending.',
         variant: 'success',
       });
+      setReminderDialogOpen(false);
+      setReminderTargetStudent(null);
     },
     onError: (err: any) => {
       toast({
@@ -374,7 +379,14 @@ export default function StudentsPage() {
                         <Grid className="h-3.5 w-3.5" /> Fee Ledger Matrix
                       </DropdownMenuItem>
                       {canMutate && (
-                        <DropdownMenuItem onClick={() => broadcastMutation.mutate(student.id)} className="gap-2">
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setReminderTargetStudent(student);
+                            setSelectedReminderType('REMINDER_1');
+                            setReminderDialogOpen(true);
+                          }}
+                          className="gap-2"
+                        >
                           <Send className="h-3.5 w-3.5 text-primary" /> Send Fee Reminder
                         </DropdownMenuItem>
                       )}
@@ -504,7 +516,14 @@ export default function StudentsPage() {
                             <Grid className="h-3.5 w-3.5" /> Fee Ledger Matrix
                           </DropdownMenuItem>
                           {canMutate && (
-                            <DropdownMenuItem onClick={() => broadcastMutation.mutate(student.id)} className="gap-2">
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setReminderTargetStudent(student);
+                                setSelectedReminderType('REMINDER_1');
+                                setReminderDialogOpen(true);
+                              }}
+                              className="gap-2"
+                            >
                               <Send className="h-3.5 w-3.5 text-primary" /> Send Fee Reminder
                             </DropdownMenuItem>
                           )}
@@ -846,6 +865,72 @@ export default function StudentsPage() {
           <DialogFooter>
             <Button variant="outline" className="w-full" onClick={() => setMatrixOpen(false)}>
               Close Matrix
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* SEND PERSONALIZED FEE REMINDER DIALOG */}
+      <Dialog open={reminderDialogOpen} onOpenChange={setReminderDialogOpen}>
+        <DialogContent className="max-w-md bg-card border border-slate-200 dark:border-slate-800">
+          <DialogHeader>
+            <DialogTitle>Send Fee Reminder</DialogTitle>
+            <DialogDescription>
+              Select a reminder level message to send to {reminderTargetStudent?.parentName} ({reminderTargetStudent?.name}&apos;s parent) via WhatsApp.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 my-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-muted-foreground">Select Reminder Level</label>
+              <select
+                value={selectedReminderType}
+                onChange={(e) => setSelectedReminderType(e.target.value as any)}
+                className="w-full p-2.5 border rounded-md bg-card text-foreground text-xs"
+              >
+                <option value="REMINDER_1">Reminder 1 (Initial Friendly Notification)</option>
+                <option value="REMINDER_2">Reminder 2 (Follow-up Reminder)</option>
+                <option value="REMINDER_3">Reminder 3 (Final Alert / Warning)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-muted-foreground">Message Preview</label>
+              <div className="p-3 border rounded-lg bg-slate-50 dark:bg-slate-900/50 text-[11px] text-muted-foreground whitespace-pre-line leading-relaxed font-mono">
+                {selectedReminderType === 'REMINDER_1' && `Dear Parent,
+Just a friendly reminder that the transport fee of ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} is now due. Please process payment at your earliest convenience. Thank you!`}
+                {selectedReminderType === 'REMINDER_2' && `Dear Parent,
+🔔 Reminder: Transport fee of ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} is still pending. Please ignore if already paid. Thank you!`}
+                {selectedReminderType === 'REMINDER_3' && `Dear Parent,
+⚠️ Final Reminder: Transport fee ₹${reminderTargetStudent?.monthlyFee ? reminderTargetStudent.monthlyFee / 100 : '___'} is still unpaid. Please clear this immediately to ensure uninterrupted service. Thank you!`}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setReminderDialogOpen(false);
+                setReminderTargetStudent(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={broadcastMutation.isPending}
+              onClick={() => {
+                if (reminderTargetStudent) {
+                  broadcastMutation.mutate({
+                    studentId: reminderTargetStudent.id,
+                    type: selectedReminderType,
+                  });
+                }
+              }}
+            >
+              {broadcastMutation.isPending ? 'Sending...' : 'Send Message'}
             </Button>
           </DialogFooter>
         </DialogContent>
