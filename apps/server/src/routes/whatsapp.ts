@@ -558,3 +558,61 @@ whatsappRouter.get(
   }
 );
 
+/**
+ * POST /api/v1/whatsapp/logs/:id/retry
+ * Retry a previously failed WhatsApp message by re-sending its body to the same phone
+ */
+whatsappRouter.post(
+  '/logs/:id/retry',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      // Find the original log entry
+      const log = await prisma.whatsAppMessage.findUnique({
+        where: { id },
+        include: { student: { select: { id: true, name: true } } },
+      });
+
+      if (!log) {
+        res.status(404).json({ success: false, error: 'Message log not found' });
+        return;
+      }
+
+      if (log.status !== MessageStatus.FAILED) {
+        res.status(400).json({ success: false, error: 'Only FAILED messages can be retried' });
+        return;
+      }
+
+      const status = getWhatsAppStatus();
+      if (!status.connected) {
+        res.status(503).json({ success: false, error: 'WhatsApp is not connected. Please pair QR first.' });
+        return;
+      }
+
+      // Re-send the same message body to the same phone
+      const result = await whatsappService.sendMessage(log.phone, log.body, log.studentId ?? null, log.type);
+
+      if (result.success) {
+        // Mark original log as retried (update status to SENT to reflect success)
+        await prisma.whatsAppMessage.update({
+          where: { id },
+          data: {
+            status: MessageStatus.SENT,
+            sentAt: new Date(),
+            errorMessage: null,
+          },
+        });
+        logger.info(`[Retry] Successfully retried message log ${id} to ${log.phone}`);
+        res.json({ success: true, data: { message: 'Message retried and sent successfully' } });
+      } else {
+        logger.warn(`[Retry] Re-send failed for log ${id}: ${result.error}`);
+        res.status(400).json({ success: false, error: result.error || 'Retry failed — WhatsApp send error' });
+      }
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+

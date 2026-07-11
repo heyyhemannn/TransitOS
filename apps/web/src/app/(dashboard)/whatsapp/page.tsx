@@ -15,6 +15,7 @@ import {
   WifiOff,
   AlertTriangle,
   HelpCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -520,14 +521,16 @@ export default function WhatsAppPage() {
       )}
 
       {/* ── Section 4: Message Logs ── */}
-      <MessageLogsCard />
+      <MessageLogsCard queryClient={queryClient} />
     </div>
   );
 }
 
 // ─── Message Logs Card ────────────────────────────────────────────────────────────
-function MessageLogsCard() {
+function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof import('@tanstack/react-query').useQueryClient> }) {
+  const { toast } = useToast();
   const [statusFilter, setStatusFilter] = React.useState('ALL');
+  const [retryingId, setRetryingId] = React.useState<string | null>(null);
 
   const { data: logs, isLoading } = useQuery({
     queryKey: ['whatsapp-logs', statusFilter],
@@ -548,6 +551,31 @@ function MessageLogsCard() {
       return res.data.data;
     },
     staleTime: 30_000,
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: async (logId: string) => {
+      setRetryingId(logId);
+      await api.post(`/whatsapp/logs/${logId}/retry`);
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Message Retried',
+        description: 'Message was successfully re-sent via WhatsApp.',
+        variant: 'success' as any,
+      });
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-logs'] });
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Retry Failed',
+        description: err.response?.data?.error || 'Could not retry message. Is WhatsApp connected?',
+        variant: 'destructive',
+      });
+    },
+    onSettled: () => {
+      setRetryingId(null);
+    },
   });
 
   const STATUS_COLORS: Record<string, string> = {
@@ -585,10 +613,10 @@ function MessageLogsCard() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[600px]">
+            <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="border-b">
-                  {['Date', 'Student', 'Type', 'Phone', 'Status', 'Preview'].map((h) => (
+                  {['Date', 'Student', 'Type', 'Phone', 'Status', 'Preview', 'Action'].map((h) => (
                     <th key={h} className="text-left py-2 px-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -613,14 +641,35 @@ function MessageLogsCard() {
                         {log.status}
                       </Badge>
                     </td>
-                    <td className="py-3 px-3 max-w-[200px]">
+                    <td className="py-3 px-3 max-w-[180px]">
                       <p className="text-xs text-muted-foreground truncate" title={log.body}>{log.body}</p>
+                    </td>
+                    <td className="py-3 px-3">
+                      {log.status === 'FAILED' ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 gap-1.5 text-[11px] font-bold border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30 disabled:opacity-50"
+                          disabled={retryingId === log.id}
+                          onClick={() => retryMutation.mutate(log.id)}
+                          title="Retry sending this message"
+                        >
+                          {retryingId === log.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-3 w-3" />
+                          )}
+                          {retryingId === log.id ? 'Sending…' : 'Retry'}
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
                 {(!logs || logs.length === 0) && (
                   <tr>
-                    <td colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
                       <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30 stroke-1" />
                       No messages found
                     </td>
