@@ -291,9 +291,16 @@ class WhatsAppService {
 
       if (type === MessageType.REMINDER_1) {
         // Attempt to send payment QR image as media
+        // Try multiple paths: monorepo root, server cwd, and __dirname-relative
+        const candidatePaths = [
+          path.resolve(process.cwd(), 'apps/server/src/assets/payment_qr.jpg'),
+          path.resolve(process.cwd(), 'src/assets/payment_qr.jpg'),
+          path.resolve(__dirname, '../assets/payment_qr.jpg'),
+          path.resolve(__dirname, '../../src/assets/payment_qr.jpg'),
+        ];
+        const qrImagePath = candidatePaths.find(p => fs.existsSync(p)) ?? null;
         try {
-          const qrImagePath = path.resolve(process.cwd(), 'apps/server/src/assets/payment_qr.jpg');
-          if (fs.existsSync(qrImagePath)) {
+          if (qrImagePath) {
             const imageBuffer = fs.readFileSync(qrImagePath);
             await this.sock.sendMessage(jid, {
               image: imageBuffer,
@@ -301,7 +308,7 @@ class WhatsAppService {
               mimetype: 'image/jpeg',
             });
           } else {
-            logger.warn(`Payment QR image not found at ${qrImagePath}. Sending text only.`);
+            logger.warn(`Payment QR image not found in any candidate path. Sending text only.`);
             await this.sock.sendMessage(jid, { text: body });
           }
         } catch (mediaErr) {

@@ -16,6 +16,7 @@ import {
   unregisterSSEClient,
   whatsappService,
 } from '../services/whatsappService';
+import { sendConfirmation } from '../services/whatsappService';
 import { logger } from '../lib/logger';
 import { getUnpaidStudents } from '../services/schedulerService';
 
@@ -560,7 +561,8 @@ whatsappRouter.get(
 
 /**
  * POST /api/v1/whatsapp/logs/:id/retry
- * Retry a previously failed WhatsApp message by re-sending its body to the same phone
+ * Retry a previously failed WhatsApp message by re-sending its body to the same phone.
+ * For CONFIRMATION type, also re-sends the PDF receipt via sendConfirmation().
  */
 whatsappRouter.post(
   '/logs/:id/retry',
@@ -585,24 +587,62 @@ whatsappRouter.post(
         return;
       }
 
-      const status = getWhatsAppStatus();
-      if (!status.connected) {
-        res.status(503).json({ success: false, error: 'WhatsApp is not connected. Please pair QR first.' });
+      // Use live socket check — more reliable than cached status flag
+      const actuallyConnected = !!(whatsappService.sock?.user?.id);
+      if (!actuallyConnected) {
+        res.status(503).json({ success: false, error: 'WhatsApp is not connected. Please Sync Status and pair QR first.' });
         return;
       }
 
-      // Re-send the same message body to the same phone
+      // ── CONFIRMATION: re-send via sendConfirmation to also deliver PDF receipt ──
+      if (log.type === MessageType.CONFIRMATION && log.studentId) {
+        try {
+          // Find the most recent PAID payment for this student
+          const latestPayment = await prisma.payment.findFirst({
+            where: { studentId: log.studentId, status: 'PAID' },
+            orderBy: { paidAt: 'desc' },
+          });
+
+          if (latestPayment) {
+            // Full confirmation: text message + PDF receipt
+            await sendConfirmation(log.studentId, latestPayment.id);
+            // Mark original log as SENT
+            await prisma.whatsAppMessage.update({
+              where: { id },
+              data: { status: MessageStatus.SENT, sentAt: new Date(), errorMessage: null },
+            });
+            logger.info(`[Retry] CONFIRMATION re-sent with PDF for studentId ${log.studentId}, paymentId ${latestPayment.id}`);
+            res.json({ success: true, data: { message: 'Confirmation message and receipt re-sent successfully' } });
+            return;
+          }
+          // No payment found — fall through to plain text re-send
+          logger.warn(`[Retry] No paid payment found for studentId ${log.studentId}, falling back to plain text re-send`);
+        } catch (confirmErr: any) {
+          logger.error(`[Retry] sendConfirmation failed for log ${id}:`, confirmErr);
+          const errMsg = confirmErr?.message ?? 'sendConfirmation error';
+          const isConnErr =
+            errMsg.toLowerCase().includes('connection') ||
+            errMsg.toLowerCase().includes('socket') ||
+            errMsg.toLowerCase().includes('not connected') ||
+            errMsg.toLowerCase().includes('pair qr');
+          res.status(isConnErr ? 503 : 400).json({
+            success: false,
+            error: isConnErr
+              ? 'WhatsApp connection dropped. Please Sync Status and retry.'
+              : errMsg,
+          });
+          return;
+        }
+      }
+
+      // ── All other types (REMINDER_1, REMINDER_2, etc.): plain re-send ──
       const result = await whatsappService.sendMessage(log.phone, log.body, log.studentId ?? null, log.type);
 
       if (result.success) {
-        // Mark original log as retried (update status to SENT to reflect success)
+        // Mark original log as SENT
         await prisma.whatsAppMessage.update({
           where: { id },
-          data: {
-            status: MessageStatus.SENT,
-            sentAt: new Date(),
-            errorMessage: null,
-          },
+          data: { status: MessageStatus.SENT, sentAt: new Date(), errorMessage: null },
         });
         logger.info(`[Retry] Successfully retried message log ${id} to ${log.phone}`);
         res.json({ success: true, data: { message: 'Message retried and sent successfully' } });
@@ -610,11 +650,12 @@ whatsappRouter.post(
         const rawError = result.error ?? '';
         logger.warn(`[Retry] Re-send failed for log ${id}: ${rawError}`);
 
-        // Detect stale/dropped socket errors and give an actionable message
+        // Detect any form of connection/socket error → 503
         const isConnectionError =
-          rawError.toLowerCase().includes('connection closed') ||
-          rawError.toLowerCase().includes('connection lost') ||
+          rawError.toLowerCase().includes('connection') ||
           rawError.toLowerCase().includes('socket') ||
+          rawError.toLowerCase().includes('not connected') ||
+          rawError.toLowerCase().includes('pair qr') ||
           rawError.toLowerCase().includes('timed out') ||
           rawError.toLowerCase().includes('stream ended');
 
