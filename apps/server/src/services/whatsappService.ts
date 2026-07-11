@@ -65,6 +65,12 @@ export function broadcastSSE(event: string, data: object) {
 
 export function registerSSEClient(res: ExpressResponse) {
   sseClients.add(res);
+  res.on('close', () => {
+    sseClients.delete(res);
+  });
+  res.on('finish', () => {
+    sseClients.delete(res);
+  });
 }
 
 export function unregisterSSEClient(res: ExpressResponse) {
@@ -78,10 +84,29 @@ class WhatsAppService {
   qrBase64: string | null = null;
   connectedPhone: string | null = null;
   lastSentAt = 0;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
 
   async initialize(): Promise<void> {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    if (this.sock) {
+      logger.info('Cleaning up old WhatsApp socket before (re)initialization...');
+      try {
+        this.sock.ev.removeAllListeners('connection.update');
+        this.sock.ev.removeAllListeners('creds.update');
+        this.sock.end(undefined);
+      } catch (err) {
+        logger.warn('Error closing old WhatsApp socket:', err);
+      }
+      this.sock = null;
+    }
+
     logger.info('Initializing WhatsApp client via Baileys and Prisma Session Store...');
     this.isConnecting = true;
+    this.isReady = false;
     broadcastSSE('status', { connected: false, phone: null, authenticating: true });
 
     try {
@@ -144,7 +169,8 @@ class WhatsAppService {
 
           if (shouldReconnect) {
             // Re-initialize after 5 seconds
-            setTimeout(() => {
+            if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = setTimeout(() => {
               this.initialize().catch((err) => {
                 logger.error('Failed to re-initialize WhatsApp:', err);
               });
@@ -154,7 +180,8 @@ class WhatsAppService {
             logger.info('WhatsApp logged out. Clearing database session.');
             await prisma.whatsAppSession.deleteMany();
             // Restart to generate new QR
-            setTimeout(() => {
+            if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = setTimeout(() => {
               this.initialize().catch((err) => {
                 logger.error('Failed to restart WhatsApp after logout:', err);
               });
@@ -164,7 +191,13 @@ class WhatsAppService {
       });
     } catch (error) {
       logger.error('WhatsApp initialization error:', error);
-      setTimeout(() => this.initialize(), 10000);
+      this.isConnecting = false;
+      if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = setTimeout(() => {
+        this.initialize().catch((err) => {
+          logger.error('Failed to retry WhatsApp initialization:', err);
+        });
+      }, 10000);
     }
   }
 
@@ -582,6 +615,10 @@ class WhatsAppService {
   }
 
   async logout(): Promise<void> {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
     await this.sock?.logout();
     await prisma.whatsAppSession.deleteMany();
     this.isReady = false;

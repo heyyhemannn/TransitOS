@@ -202,10 +202,12 @@ async function bootstrap() {
     });
 
     // Initialize WhatsApp (non-blocking)
-    if (process.env.NODE_ENV !== 'test') {
+    if (process.env.NODE_ENV !== 'test' && process.env.DISABLE_WHATSAPP !== 'true') {
       initWhatsApp().catch((err: unknown) => {
         logger.warn('WhatsApp initialization failed (non-fatal):', err);
       });
+    } else if (process.env.DISABLE_WHATSAPP === 'true') {
+      logger.info('WhatsApp service initialization bypassed (DISABLE_WHATSAPP=true)');
     }
 
     // Initialize cron scheduler

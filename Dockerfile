@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
 # Environment
 ENV PORT=4000
 ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=400"
 
 # Create working directory
 WORKDIR /app
@@ -40,4 +41,4 @@ RUN npm run build --workspace=apps/server
 EXPOSE 4000
 
 # Start Express server
-CMD ["node", "apps/server/dist/index.js"]
+CMD ["node", "--max-old-space-size=400", "apps/server/dist/index.js"]
