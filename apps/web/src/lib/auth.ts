@@ -6,6 +6,7 @@ import { api, getApiError } from './api';
 interface AuthState {
   user: User | null;
   accessToken: string | null;
+  refreshToken: string | null;
   isLoading: boolean;
   error: string | null;
 
@@ -13,6 +14,7 @@ interface AuthState {
   login: (credentials: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   fetchMe: () => Promise<void>;
+  setTokens: (accessToken: string, refreshToken: string) => void;
   setAccessToken: (token: string) => void;
   clearError: () => void;
 }
@@ -22,6 +24,7 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       accessToken: null,
+      refreshToken: null,
       isLoading: false,
       error: null,
 
@@ -29,8 +32,8 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         try {
           const res = await api.post<ApiResponse<LoginResponse>>('/auth/login', credentials);
-          const { user, accessToken } = res.data.data!;
-          set({ user, accessToken, isLoading: false, error: null });
+          const { user, accessToken, refreshToken } = res.data.data!;
+          set({ user, accessToken, refreshToken: refreshToken ?? null, isLoading: false, error: null });
         } catch (err) {
           set({ isLoading: false, error: getApiError(err) });
           throw err;
@@ -39,11 +42,12 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         try {
-          await api.post('/auth/logout');
+          const { refreshToken } = get();
+          await api.post('/auth/logout', { refreshToken });
         } catch {
           // swallow error — clear local state regardless
         } finally {
-          set({ user: null, accessToken: null, error: null });
+          set({ user: null, accessToken: null, refreshToken: null, error: null });
           if (typeof window !== 'undefined') {
             window.location.href = '/login';
           }
@@ -60,10 +64,11 @@ export const useAuthStore = create<AuthState>()(
           set({ user: res.data.data!, isLoading: false });
         } catch {
           // Token invalid — clear
-          set({ user: null, accessToken: null, isLoading: false });
+          set({ user: null, accessToken: null, refreshToken: null, isLoading: false });
         }
       },
 
+      setTokens: (accessToken: string, refreshToken: string) => set({ accessToken, refreshToken }),
       setAccessToken: (token: string) => set({ accessToken: token }),
       clearError: () => set({ error: null }),
     }),
@@ -73,6 +78,7 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         user: state.user,
         accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
       }),
     },
   ),

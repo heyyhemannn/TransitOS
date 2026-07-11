@@ -35,6 +35,11 @@ api.interceptors.response.use(
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
     if (error.response?.status === 401 && !originalRequest._retry) {
+      const refreshToken = useAuthStore.getState().refreshToken;
+      if (!refreshToken) {
+        return Promise.reject(error);
+      }
+
       if (isRefreshing) {
         // Queue requests while refreshing
         return new Promise((resolve, reject) => {
@@ -52,12 +57,19 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const res = await api.post<{ success: boolean; data: { accessToken: string } }>(
+        const refreshToken = useAuthStore.getState().refreshToken;
+        const res = await api.post<{ success: boolean; data: { accessToken: string; refreshToken?: string } }>(
           '/auth/refresh',
+          { refreshToken },
         );
         const newToken = res.data.data.accessToken;
+        const newRefreshToken = res.data.data.refreshToken;
 
-        useAuthStore.getState().setAccessToken(newToken);
+        if (newToken && newRefreshToken) {
+          useAuthStore.getState().setTokens(newToken, newRefreshToken);
+        } else if (newToken) {
+          useAuthStore.getState().setAccessToken(newToken);
+        }
 
         // Flush queue
         refreshQueue.forEach((cb) => cb.resolve(newToken));

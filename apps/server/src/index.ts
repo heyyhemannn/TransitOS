@@ -52,6 +52,7 @@ const allowedOrigins = [
   'https://transitos.vercel.app',
   'http://localhost:3000',
   'http://localhost:3001',
+  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()) : []),
 ];
 
 app.use(

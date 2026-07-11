@@ -122,6 +122,7 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response, 
           role: user.role,
         },
         accessToken,
+        refreshToken,
       },
     });
   } catch (error) {
@@ -135,7 +136,11 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response, 
  */
 authRouter.post('/refresh', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const oldRefreshToken = req.cookies.refreshToken as string | undefined;
+    const oldRefreshToken =
+      (req.cookies.refreshToken as string | undefined) ??
+      (req.body.refreshToken as string | undefined) ??
+      (req.headers['x-refresh-token'] as string | undefined);
+
     if (!oldRefreshToken) {
       res.status(401).json({ success: false, error: 'Unauthorized' });
       return;
@@ -222,6 +227,7 @@ authRouter.post('/refresh', async (req: Request, res: Response, next: NextFuncti
       success: true,
       data: {
         accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
       },
     });
   } catch (error) {
@@ -235,7 +241,11 @@ authRouter.post('/refresh', async (req: Request, res: Response, next: NextFuncti
  */
 authRouter.post('/logout', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const oldRefreshToken = req.cookies.refreshToken as string | undefined;
+    const oldRefreshToken =
+      (req.cookies.refreshToken as string | undefined) ??
+      (req.body.refreshToken as string | undefined) ??
+      (req.headers['x-refresh-token'] as string | undefined);
+
     if (oldRefreshToken) {
       const refreshSecret = process.env.JWT_REFRESH_SECRET;
       if (refreshSecret) {
