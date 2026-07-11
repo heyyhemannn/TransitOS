@@ -607,8 +607,25 @@ whatsappRouter.post(
         logger.info(`[Retry] Successfully retried message log ${id} to ${log.phone}`);
         res.json({ success: true, data: { message: 'Message retried and sent successfully' } });
       } else {
-        logger.warn(`[Retry] Re-send failed for log ${id}: ${result.error}`);
-        res.status(400).json({ success: false, error: result.error || 'Retry failed — WhatsApp send error' });
+        const rawError = result.error ?? '';
+        logger.warn(`[Retry] Re-send failed for log ${id}: ${rawError}`);
+
+        // Detect stale/dropped socket errors and give an actionable message
+        const isConnectionError =
+          rawError.toLowerCase().includes('connection closed') ||
+          rawError.toLowerCase().includes('connection lost') ||
+          rawError.toLowerCase().includes('socket') ||
+          rawError.toLowerCase().includes('timed out') ||
+          rawError.toLowerCase().includes('stream ended');
+
+        if (isConnectionError) {
+          res.status(503).json({
+            success: false,
+            error: 'WhatsApp connection dropped. Please go to WhatsApp Gateway → Sync Status, then retry.',
+          });
+        } else {
+          res.status(400).json({ success: false, error: rawError || 'Retry failed — WhatsApp send error' });
+        }
       }
     } catch (error) {
       next(error);

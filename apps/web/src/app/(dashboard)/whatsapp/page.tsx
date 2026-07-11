@@ -560,18 +560,35 @@ function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof impor
     },
     onSuccess: () => {
       toast({
-        title: 'Message Retried',
+        title: 'Message Retried ✅',
         description: 'Message was successfully re-sent via WhatsApp.',
         variant: 'success' as any,
       });
       queryClient.invalidateQueries({ queryKey: ['whatsapp-logs'] });
     },
     onError: (err: any) => {
-      toast({
-        title: 'Retry Failed',
-        description: err.response?.data?.error || 'Could not retry message. Is WhatsApp connected?',
-        variant: 'destructive',
-      });
+      const status = err.response?.status;
+      const serverMsg: string = err.response?.data?.error || '';
+
+      if (status === 503 || serverMsg.toLowerCase().includes('connection')) {
+        toast({
+          title: '⚠️ WhatsApp Disconnected',
+          description: 'WhatsApp session dropped. Click "Sync Status" at the top of this page, wait for reconnection, then retry.',
+          variant: 'destructive',
+        });
+      } else if (status === 503) {
+        toast({
+          title: 'WhatsApp Offline',
+          description: serverMsg || 'WhatsApp is not connected. Please pair the QR code first.',
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Retry Failed',
+          description: serverMsg || 'Could not retry message. Is WhatsApp connected?',
+          variant: 'destructive',
+        });
+      }
     },
     onSettled: () => {
       setRetryingId(null);
