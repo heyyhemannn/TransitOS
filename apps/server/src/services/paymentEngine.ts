@@ -188,23 +188,29 @@ export async function matchPayment(
   }
 
   // 6. DB Updates (Record as PENDING for review)
-  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const payment = await tx.payment.create({
-      data: {
-        studentId: matchedStudent.id,
-        amount,
-        month,
-        year,
-        paidAt: null, // pending, so not paid yet
-        transactionId,
-        method: PaymentMethod.UPI,
-        status: PaymentStatus.PENDING,
-        remarks: `Auto-matched from sender ${cleanedSender} (score: ${bestCandidate.score})`,
-      },
-    });
+  const result = await prisma.$transaction(
+    async (tx: Prisma.TransactionClient) => {
+      const payment = await tx.payment.create({
+        data: {
+          studentId: matchedStudent.id,
+          amount,
+          month,
+          year,
+          paidAt: null, // pending, so not paid yet
+          transactionId,
+          method: PaymentMethod.UPI,
+          status: PaymentStatus.PENDING,
+          remarks: `Auto-matched from sender ${cleanedSender} (score: ${bestCandidate.score})`,
+        },
+      });
 
-    return payment;
-  });
+      return payment;
+    },
+    {
+      maxWait: 10000,
+      timeout: 20000,
+    }
+  );
 
   logger.info(`Successfully auto-matched payment of paise ${amount} (Txn: ${transactionId}) to student ${matchedStudent.name} as PENDING`);
 

@@ -389,25 +389,31 @@ studentsRouter.delete(
       const currentMonth = nowIST.getMonth() + 1;
       const currentYear = nowIST.getFullYear();
 
-      await prisma.$transaction(async (tx) => {
-        // 1. Update student status to INACTIVE
-        await tx.student.update({
-          where: { id },
-          data: { status: StudentStatus.INACTIVE },
-        });
+      await prisma.$transaction(
+        async (tx) => {
+          // 1. Update student status to INACTIVE
+          await tx.student.update({
+            where: { id },
+            data: { status: StudentStatus.INACTIVE },
+          });
 
-        // 2. Delete unpaid fee schedules for the current and future months
-        await tx.feeSchedule.deleteMany({
-          where: {
-            studentId: id,
-            isPaid: false,
-            OR: [
-              { year: { gte: currentYear }, month: { gte: currentMonth } },
-              { year: { gt: currentYear } },
-            ],
-          },
-        });
-      });
+          // 2. Delete unpaid fee schedules for the current and future months
+          await tx.feeSchedule.deleteMany({
+            where: {
+              studentId: id,
+              isPaid: false,
+              OR: [
+                { year: { gte: currentYear }, month: { gte: currentMonth } },
+                { year: { gt: currentYear } },
+              ],
+            },
+          });
+        },
+        {
+          maxWait: 10000,
+          timeout: 20000,
+        }
+      );
 
       // Audit Logging
       if (req.user) {

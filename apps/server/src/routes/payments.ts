@@ -207,95 +207,108 @@ paymentsRouter.post(
       const actualNow = new Date();
       const results: any[] = [];
 
-      // We will process all students in a transaction
-      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        for (const alloc of body.students) {
-          // Verify student exists
-          const student = await tx.student.findUnique({
-            where: { id: alloc.studentId },
-          });
-          if (!student) {
-            throw new Error(`Student not found for ID: ${alloc.studentId}`);
-          }
-
-          // Convert amount to paise
-          const amountPaise = Math.round(alloc.amount * 100);
-
-          // Check duplicate payment
-          const existingPayment = await tx.payment.findUnique({
-            where: {
-              studentId_month_year: {
-                studentId: alloc.studentId,
-                month: body.month,
-                year: body.year,
-              },
-            },
-          });
-
-          if (existingPayment && existingPayment.status === PaymentStatus.PAID) {
-            throw new Error(`Payment already recorded for student ${student.name} this month`);
-          }
-
-          // If remarks contain a raw UPI description string, parse it to extract the parent name
-          if (body.remarks && body.remarks.trim().toUpperCase().startsWith('UPI/')) {
-            const { senderName } = parseUPIDescription(body.remarks);
-            if (senderName && (!student.parentName || student.parentName.trim() === '' || student.parentName.toLowerCase().includes('parent'))) {
-              await tx.student.update({
-                where: { id: student.id },
-                data: { parentName: senderName },
-              });
-              logger.info(`Automatically learned parent name "${senderName}" for student ${student.name}`);
-            }
-          }
-
-          // Format transaction ID to prevent unique constraint conflicts for collective payments
-          const finalTxId = body.transactionId
-            ? (body.students.length > 1
-                ? `${body.transactionId}_${alloc.studentId}`
-                : body.transactionId)
-            : null;
-
-          const payment = await tx.payment.create({
-            data: {
-              studentId: alloc.studentId,
-              amount: amountPaise,
-              month: body.month,
-              year: body.year,
-              paidAt: actualNow,
-              transactionId: finalTxId,
-              method: body.method,
-              status: PaymentStatus.PAID,
-              remarks: body.remarks || 'Manual Payment Entry',
-              createdBy: req.user?.id,
-            },
-          });
-
-          await tx.feeSchedule.upsert({
-            where: {
-              studentId_month_year: {
-                studentId: alloc.studentId,
-                month: body.month,
-                year: body.year,
-              },
-            },
-            update: {
-              isPaid: true,
-              paidAt: actualNow,
-            },
-            create: {
-              studentId: alloc.studentId,
-              month: body.month,
-              year: body.year,
-              dueDate: new Date(Date.UTC(body.year, body.month - 1, 10, 4, 30, 0)),
-              amount: amountPaise,
-              isPaid: true,
-              paidAt: actualNow,
-            },
-          });
-
-          results.push({ payment, student });
-        }
+      const studentIds = body.students.map(s => s.studentId);
+      const students = await prisma.student.findMany({
+        where: { id: { in: studentIds } },
       });
+
+      if (students.length !== studentIds.length) {
+        const foundIds = students.map(s => s.id);
+        const missingId = studentIds.find(id => !foundIds.includes(id));
+        throw new Error(`Student not found for ID: ${missingId}`);
+      }
+
+      const existingPayments = await prisma.payment.findMany({
+        where: {
+          OR: body.students.map(alloc => ({
+            studentId: alloc.studentId,
+            month: body.month,
+            year: body.year,
+          })),
+        },
+      });
+
+      for (const p of existingPayments) {
+        if (p.status === PaymentStatus.PAID) {
+          const student = students.find(s => s.id === p.studentId);
+          throw new Error(`Payment already recorded for student ${student?.name || p.studentId} this month`);
+        }
+      }
+
+      // We will process all students in a transaction
+      await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          for (const alloc of body.students) {
+            const student = students.find(s => s.id === alloc.studentId)!;
+
+            // Convert amount to paise
+            const amountPaise = Math.round(alloc.amount * 100);
+
+            // If remarks contain a raw UPI description string, parse it to extract the parent name
+            if (body.remarks && body.remarks.trim().toUpperCase().startsWith('UPI/')) {
+              const { senderName } = parseUPIDescription(body.remarks);
+              if (senderName && (!student.parentName || student.parentName.trim() === '' || student.parentName.toLowerCase().includes('parent'))) {
+                await tx.student.update({
+                  where: { id: student.id },
+                  data: { parentName: senderName },
+                });
+                logger.info(`Automatically learned parent name "${senderName}" for student ${student.name}`);
+              }
+            }
+
+            // Format transaction ID to prevent unique constraint conflicts for collective payments
+            const finalTxId = body.transactionId
+              ? (body.students.length > 1
+                  ? `${body.transactionId}_${alloc.studentId}`
+                  : body.transactionId)
+              : null;
+
+            const payment = await tx.payment.create({
+              data: {
+                studentId: alloc.studentId,
+                amount: amountPaise,
+                month: body.month,
+                year: body.year,
+                paidAt: actualNow,
+                transactionId: finalTxId,
+                method: body.method,
+                status: PaymentStatus.PAID,
+                remarks: body.remarks || 'Manual Payment Entry',
+                createdBy: req.user?.id,
+              },
+            });
+
+            await tx.feeSchedule.upsert({
+              where: {
+                studentId_month_year: {
+                  studentId: alloc.studentId,
+                  month: body.month,
+                  year: body.year,
+                },
+              },
+              update: {
+                isPaid: true,
+                paidAt: actualNow,
+              },
+              create: {
+                studentId: alloc.studentId,
+                month: body.month,
+                year: body.year,
+                dueDate: new Date(Date.UTC(body.year, body.month - 1, 10, 4, 30, 0)),
+                amount: amountPaise,
+                isPaid: true,
+                paidAt: actualNow,
+              },
+            });
+
+            results.push({ payment, student });
+          }
+        },
+        {
+          maxWait: 10000,
+          timeout: 20000,
+        }
+      );
 
       // After transaction completes, run side effects (outside transaction to avoid blocking DB) sequentially
       (async () => {
@@ -556,62 +569,68 @@ paymentsRouter.patch(
       const oldStatus = payment.status;
       const actualNow = new Date();
 
-      const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        const results = [];
-        for (const pay of paymentsToUpdate) {
-          const oldPayStatus = pay.status;
-          const updatedPay = await tx.payment.update({
-            where: { id: pay.id },
-            data: { 
-              status,
-              paidAt: status === PaymentStatus.PAID ? actualNow : pay.paidAt,
-            },
-          });
-          results.push(updatedPay);
-
-          // Update corresponding fee schedule
-          if (status === PaymentStatus.PAID) {
-            await tx.feeSchedule.upsert({
-              where: {
-                studentId_month_year: {
-                  studentId: pay.studentId,
-                  month: pay.month,
-                  year: pay.year,
-                },
-              },
-              update: {
-                isPaid: true,
-                paidAt: actualNow,
-              },
-              create: {
-                studentId: pay.studentId,
-                month: pay.month,
-                year: pay.year,
-                dueDate: new Date(Date.UTC(pay.year, pay.month - 1, 10, 4, 30, 0)),
-                amount: pay.amount,
-                isPaid: true,
-                paidAt: actualNow,
+      const updated = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          const results = [];
+          for (const pay of paymentsToUpdate) {
+            const oldPayStatus = pay.status;
+            const updatedPay = await tx.payment.update({
+              where: { id: pay.id },
+              data: { 
+                status,
+                paidAt: status === PaymentStatus.PAID ? actualNow : pay.paidAt,
               },
             });
-          } else {
-            // Revert to unpaid if changing status from PAID to something else
-            if (oldPayStatus === PaymentStatus.PAID) {
-              await tx.feeSchedule.updateMany({
+            results.push(updatedPay);
+
+            // Update corresponding fee schedule
+            if (status === PaymentStatus.PAID) {
+              await tx.feeSchedule.upsert({
                 where: {
+                  studentId_month_year: {
+                    studentId: pay.studentId,
+                    month: pay.month,
+                    year: pay.year,
+                  },
+                },
+                update: {
+                  isPaid: true,
+                  paidAt: actualNow,
+                },
+                create: {
                   studentId: pay.studentId,
                   month: pay.month,
                   year: pay.year,
-                },
-                data: {
-                  isPaid: false,
-                  paidAt: null,
+                  dueDate: new Date(Date.UTC(pay.year, pay.month - 1, 10, 4, 30, 0)),
+                  amount: pay.amount,
+                  isPaid: true,
+                  paidAt: actualNow,
                 },
               });
+            } else {
+              // Revert to unpaid if changing status from PAID to something else
+              if (oldPayStatus === PaymentStatus.PAID) {
+                await tx.feeSchedule.updateMany({
+                  where: {
+                    studentId: pay.studentId,
+                    month: pay.month,
+                    year: pay.year,
+                  },
+                  data: {
+                    isPaid: false,
+                    paidAt: null,
+                  },
+                });
+              }
             }
           }
+          return results;
+        },
+        {
+          maxWait: 10000,
+          timeout: 20000,
         }
-        return results;
-      });
+      );
 
       // Write Audit Log for each
       for (const pay of paymentsToUpdate) {
@@ -726,25 +745,31 @@ paymentsRouter.delete(
         return;
       }
 
-      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // 1. Revert FeeSchedule to unpaid
-        await tx.feeSchedule.updateMany({
-          where: {
-            studentId: payment.studentId,
-            month: payment.month,
-            year: payment.year,
-          },
-          data: {
-            isPaid: false,
-            paidAt: null,
-          },
-        });
+      await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          // 1. Revert FeeSchedule to unpaid
+          await tx.feeSchedule.updateMany({
+            where: {
+              studentId: payment.studentId,
+              month: payment.month,
+              year: payment.year,
+            },
+            data: {
+              isPaid: false,
+              paidAt: null,
+            },
+          });
 
-        // 2. Delete the payment
-        await tx.payment.delete({
-          where: { id },
-        });
-      });
+          // 2. Delete the payment
+          await tx.payment.delete({
+            where: { id },
+          });
+        },
+        {
+          maxWait: 10000,
+          timeout: 20000,
+        }
+      );
 
       // Write Audit Log
       await createAuditLog(req.user?.id || null, 'DELETE_PAYMENT', 'Payment', id, {
@@ -883,55 +908,61 @@ publicPaymentsRouter.post(
       const paidAtValue = isAutoConfirm ? actualNow : null;
 
       // Create payment and update fee schedules
-      const createdPayments = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        const results = [];
-        for (let i = 0; i < paymentsToCreate.length; i++) {
-          const item = paymentsToCreate[i];
-          const dbTxId = isCollective ? `${transactionId}_${item.student.id}` : transactionId;
+      const createdPayments = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          const results = [];
+          for (let i = 0; i < paymentsToCreate.length; i++) {
+            const item = paymentsToCreate[i];
+            const dbTxId = isCollective ? `${transactionId}_${item.student.id}` : transactionId;
 
-          const payment = await tx.payment.create({
-            data: {
-              studentId: item.student.id,
-              amount: item.targetAmount,
-              month: item.targetMonth,
-              year: item.targetYear,
-              paidAt: paidAtValue,
-              transactionId: dbTxId,
-              method: 'UPI',
-              status: paymentStatus,
-              remarks: remarks + (isCollective ? ` (Collective payment ${i + 1}/${paymentsToCreate.length})` : ''),
-              screenshotUrl: screenshotStoragePath,
-            },
-          });
-          results.push(payment);
+            const payment = await tx.payment.create({
+              data: {
+                studentId: item.student.id,
+                amount: item.targetAmount,
+                month: item.targetMonth,
+                year: item.targetYear,
+                paidAt: paidAtValue,
+                transactionId: dbTxId,
+                method: 'UPI',
+                status: paymentStatus,
+                remarks: remarks + (isCollective ? ` (Collective payment ${i + 1}/${paymentsToCreate.length})` : ''),
+                screenshotUrl: screenshotStoragePath,
+              },
+            });
+            results.push(payment);
 
-          if (isAutoConfirm) {
-            await tx.feeSchedule.upsert({
-              where: {
-                studentId_month_year: {
+            if (isAutoConfirm) {
+              await tx.feeSchedule.upsert({
+                where: {
+                  studentId_month_year: {
+                    studentId: item.student.id,
+                    month: item.targetMonth,
+                    year: item.targetYear,
+                  },
+                },
+                update: {
+                  isPaid: true,
+                  paidAt: actualNow,
+                },
+                create: {
                   studentId: item.student.id,
                   month: item.targetMonth,
                   year: item.targetYear,
+                  dueDate: new Date(Date.UTC(item.targetYear, item.targetMonth - 1, 10, 4, 30, 0)),
+                  amount: item.targetAmount,
+                  isPaid: true,
+                  paidAt: actualNow,
                 },
-              },
-              update: {
-                isPaid: true,
-                paidAt: actualNow,
-              },
-              create: {
-                studentId: item.student.id,
-                month: item.targetMonth,
-                year: item.targetYear,
-                dueDate: new Date(Date.UTC(item.targetYear, item.targetMonth - 1, 10, 4, 30, 0)),
-                amount: item.targetAmount,
-                isPaid: true,
-                paidAt: actualNow,
-              },
-            });
+              });
+            }
           }
+          return results;
+        },
+        {
+          maxWait: 10000,
+          timeout: 20000,
         }
-        return results;
-      });
+      );
 
       const firstResult = createdPayments[0];
 
