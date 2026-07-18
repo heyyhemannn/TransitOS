@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --exclude \"../../node_modules/**\" --exclude \"node_modules/**\" src/index.ts",
     "build": "tsc",
     "start": "node --max-old-space-size=400 dist/index.js",
     "db:generate": "prisma generate",

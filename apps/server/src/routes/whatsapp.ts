@@ -674,3 +674,38 @@ whatsappRouter.post(
   }
 );
 
+/**
+ * POST /api/v1/whatsapp/logout
+ * Terminate the WhatsApp session and clear credentials
+ */
+whatsappRouter.post(
+  '/logout',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      await whatsappService.logout();
+      res.json({ success: true, message: 'WhatsApp session terminated successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/whatsapp/refresh
+ * Refresh/regenerate QR code by re-initializing Baileys client
+ */
+whatsappRouter.post(
+  '/refresh',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      await whatsappService.initialize();
+      res.json({ success: true, message: 'WhatsApp client re-initialization triggered' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+

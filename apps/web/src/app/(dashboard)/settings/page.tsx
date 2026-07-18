@@ -23,6 +23,7 @@ import {
   Phone,
   MessageSquare,
   Trash2,
+  KeyRound,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -77,6 +78,11 @@ const userSchema = z.object({
 });
 type UserFormValues = z.infer<typeof userSchema>;
 
+const changePasswordSchema = z.object({
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+});
+type ChangePasswordFormValues = z.infer<typeof changePasswordSchema>;
+
 interface SchoolSchedule {
   id: string;
   schoolName: string;
@@ -105,6 +111,8 @@ export default function SettingsPage() {
   const [scheduleEdits, setScheduleEdits] = React.useState<Record<string, ScheduleFormValues>>({});
   const [addScheduleOpen, setAddScheduleOpen] = React.useState(false);
   const [addUserOpen, setAddUserOpen] = React.useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = React.useState(false);
+  const [selectedUserForPasswordChange, setSelectedUserForPasswordChange] = React.useState<AppUser | null>(null);
 
   // ─── Business Settings ───────────────────────────────────────────────────────
   const { register, handleSubmit, reset, formState: { errors } } = useForm<SettingsFormValues>({
@@ -213,6 +221,25 @@ export default function SettingsPage() {
     },
     onError: (err: any) => {
       toast({ title: 'Failed', description: err.response?.data?.error || 'Deactivation failed', variant: 'destructive' });
+    },
+  });
+
+  const changePasswordForm = useForm<ChangePasswordFormValues>({
+    resolver: zodResolver(changePasswordSchema),
+    defaultValues: { password: '' },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: async ({ userId, password }: { userId: string; password: ChangePasswordFormValues['password'] }) => {
+      await api.post(`/auth/users/${userId}/change-password`, { password });
+    },
+    onSuccess: () => {
+      toast({ title: 'Password Updated', description: 'User password changed successfully.', variant: 'success' as any });
+      setChangePasswordOpen(false);
+      changePasswordForm.reset();
+    },
+    onError: (err: any) => {
+      toast({ title: 'Failed', description: err.response?.data?.error || 'Password update failed', variant: 'destructive' });
     },
   });
 
@@ -515,18 +542,34 @@ export default function SettingsPage() {
                           </Badge>
                         </td>
                         <td className="py-3 px-3">
-                          {u.id !== user?.id && u.isActive && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 gap-1 text-xs text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                              onClick={() => deactivateUserMutation.mutate(u.id)}
-                              disabled={deactivateUserMutation.isPending}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              Deactivate
-                            </Button>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            {u.isActive && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 gap-1 text-xs text-indigo-500 hover:text-indigo-600 hover:bg-indigo-500/10"
+                                onClick={() => {
+                                  setSelectedUserForPasswordChange(u);
+                                  setChangePasswordOpen(true);
+                                }}
+                              >
+                                <KeyRound className="h-3 w-3" />
+                                Change Password
+                              </Button>
+                            )}
+                            {u.id !== user?.id && u.isActive && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 gap-1 text-xs text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                onClick={() => deactivateUserMutation.mutate(u.id)}
+                                disabled={deactivateUserMutation.isPending}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Deactivate
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -623,6 +666,58 @@ export default function SettingsPage() {
               <Button type="submit" disabled={addUserMutation.isPending} className="gap-2 font-bold">
                 {addUserMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
                 Create User
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ══ Change Password Dialog ══ */}
+      <Dialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-bold flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-indigo-500" />
+              Change Password
+            </DialogTitle>
+            <DialogDescription>
+              Set a new password for <span className="font-semibold text-foreground">{selectedUserForPasswordChange?.name}</span>
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={changePasswordForm.handleSubmit((v) => {
+              if (selectedUserForPasswordChange) {
+                changePasswordMutation.mutate({
+                  userId: selectedUserForPasswordChange.id,
+                  password: v.password,
+                });
+              }
+            })}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label className="text-xs font-bold text-muted-foreground uppercase">New Password</Label>
+              <Input
+                type="password"
+                placeholder="Min 8 characters"
+                className="min-h-[48px] text-base"
+                {...changePasswordForm.register('password')}
+              />
+              {changePasswordForm.formState.errors.password && (
+                <p className="text-xs text-red-500">{changePasswordForm.formState.errors.password.message}</p>
+              )}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setChangePasswordOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={changePasswordMutation.isPending} className="gap-2 font-bold">
+                {changePasswordMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Save Password
               </Button>
             </DialogFooter>
           </form>

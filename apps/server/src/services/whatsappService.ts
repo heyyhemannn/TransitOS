@@ -455,7 +455,7 @@ class WhatsAppService {
         if (!pdfBuffer && payment.receiptUrl.startsWith('http')) {
           try {
             logger.info(`Falling back to HTTP fetch for receipt URL: ${payment.receiptUrl}`);
-            const response = await fetch(payment.receiptUrl);
+            const response = await fetch(payment.receiptUrl, { signal: AbortSignal.timeout(10000) });
             if (response.ok) {
               const arrayBuffer = await response.arrayBuffer();
               pdfBuffer = Buffer.from(arrayBuffer);

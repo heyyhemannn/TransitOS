@@ -208,6 +208,39 @@ export default function WhatsAppPage() {
     },
   });
 
+  // ─── Disconnect WhatsApp Session Mutation ──────────────────────────────────────
+  const disconnectMutation = useMutation({
+    mutationFn: async () => {
+      await api.post('/whatsapp/logout');
+    },
+    onSuccess: () => {
+      toast({ title: 'Session Terminated', description: 'WhatsApp session disconnected successfully.', variant: 'success' as any });
+      queryClient.invalidateQueries({ queryKey: ['wa-device-status'] });
+      queryClient.invalidateQueries({ queryKey: ['wa-qr-code'] });
+      setLiveStatus(null);
+      setLiveQR(undefined);
+    },
+    onError: (err: any) => {
+      toast({ title: 'Failed to Disconnect', description: err.response?.data?.error || 'Failed to disconnect session.', variant: 'destructive' });
+    },
+  });
+
+  // ─── Refresh QR Mutation ───────────────────────────────────────────────────────
+  const refreshQRMutation = useMutation({
+    mutationFn: async () => {
+      await api.post('/whatsapp/refresh');
+    },
+    onSuccess: () => {
+      toast({ title: 'QR Refreshed', description: 'WhatsApp client re-initialization triggered. Generating new QR code...', variant: 'success' as any });
+      queryClient.invalidateQueries({ queryKey: ['wa-device-status'] });
+      queryClient.invalidateQueries({ queryKey: ['wa-qr-code'] });
+      setLiveQR(undefined);
+    },
+    onError: (err: any) => {
+      toast({ title: 'Failed to Refresh QR', description: err.response?.data?.error || 'Failed to trigger QR refresh.', variant: 'destructive' });
+    },
+  });
+
   const handleManualRefresh = async () => {
     const [statusRes, qrRes] = await Promise.all([
       api.get<{ data: WAStatus }>('/whatsapp/status'),
@@ -305,6 +338,21 @@ export default function WhatsAppPage() {
                 <div className="text-xs text-muted-foreground max-w-xs border rounded-lg p-3 bg-muted/20">
                   ✨ Confirmation notifications and due alerts will now be sent automatically. Keep this session active.
                 </div>
+                {canMutate && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="mt-2 font-bold gap-2 shadow-md shadow-red-500/10"
+                    onClick={() => disconnectMutation.mutate()}
+                    disabled={disconnectMutation.isPending}
+                  >
+                    {disconnectMutation.isPending ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> Disconnecting…</>
+                    ) : (
+                      <><Link2Off className="h-4 w-4" /> Disconnect Session</>
+                    )}
+                  </Button>
+                )}
               </div>
             ) : isAuthenticating ? (
               <div className="flex flex-col items-center text-center space-y-4">
@@ -319,10 +367,24 @@ export default function WhatsAppPage() {
             ) : (
               <div className="flex flex-col items-center text-center space-y-4 w-full">
                 {displayQR ? (
-                  <div className="relative group border-2 border-slate-200 dark:border-slate-700 p-3 rounded-2xl bg-white shadow-inner">
-                    <img src={displayQR} alt="WhatsApp Pair QR Code" className="h-52 w-52 object-contain" />
-                    <div className="absolute inset-0 rounded-2xl group-hover:bg-black/5 transition-colors pointer-events-none" />
-                  </div>
+                  <>
+                    <div className="relative group border-2 border-slate-200 dark:border-slate-700 p-3 rounded-2xl bg-white shadow-inner">
+                      <img src={displayQR} alt="WhatsApp Pair QR Code" className="h-52 w-52 object-contain" />
+                      <div className="absolute inset-0 rounded-2xl group-hover:bg-black/5 transition-colors pointer-events-none" />
+                    </div>
+                    {canMutate && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="font-bold gap-1.5 text-xs mt-1"
+                        onClick={() => refreshQRMutation.mutate()}
+                        disabled={refreshQRMutation.isPending}
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${refreshQRMutation.isPending ? 'animate-spin' : ''}`} />
+                        Refresh QR
+                      </Button>
+                    )}
+                  </>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-10">
                     <QrCode className="h-12 w-12 text-muted-foreground animate-pulse mb-3" />

@@ -300,7 +300,7 @@ authRouter.get('/me', authenticate, (req: Request, res: Response): void => {
 /**
  * GET /api/v1/auth/users
  * ADMIN only — list all users, optionally filtered by role.
- * Used to populate driver assignment dropdowns.
+ * Used to populate driver assignment dropdowns and settings list.
  */
 authRouter.get(
   '/users',
@@ -319,14 +319,16 @@ authRouter.get(
 
       const users = await prisma.user.findMany({
         where: {
-          isActive: true,
-          ...(roleFilter ? { role: roleFilter as UserRole } : {}),
+          // If no roleFilter (settings view), return all users. If roleFilter (e.g. DRIVER selection), return active only.
+          ...(roleFilter ? { role: roleFilter as UserRole, isActive: true } : {}),
         },
         select: {
           id: true,
           name: true,
           email: true,
           role: true,
+          isActive: true,
+          createdAt: true,
         },
         orderBy: { name: 'asc' },
       });
@@ -337,3 +339,119 @@ authRouter.get(
     }
   },
 );
+
+const registerSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters'),
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  role: z.nativeEnum(UserRole),
+});
+
+/**
+ * POST /api/v1/auth/register
+ * ADMIN only — creates a new active user
+ */
+authRouter.post(
+  '/register',
+  authenticate,
+  requireRole(UserRole.ADMIN),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const body = registerSchema.parse(req.body);
+
+      const existingUser = await prisma.user.findUnique({
+        where: { email: body.email.toLowerCase() },
+      });
+
+      if (existingUser) {
+        res.status(400).json({ success: false, error: 'User with this email already exists' });
+        return;
+      }
+
+      const passwordHash = await bcrypt.hash(body.password, 12);
+
+      const user = await prisma.user.create({
+        data: {
+          name: body.name,
+          email: body.email.toLowerCase(),
+          passwordHash,
+          role: body.role,
+          isActive: true,
+        },
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * PATCH /api/v1/auth/users/:userId/deactivate
+ * ADMIN only — deactivates a user
+ */
+authRouter.patch(
+  '/users/:userId/deactivate',
+  authenticate,
+  requireRole(UserRole.ADMIN),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { userId } = req.params;
+
+      if (userId === req.user?.id) {
+        res.status(400).json({ success: false, error: 'Cannot deactivate yourself' });
+        return;
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { isActive: false },
+      });
+
+      res.json({ success: true, message: 'User deactivated successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+const changePasswordSchema = z.object({
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
+/**
+ * POST /api/v1/auth/users/:userId/change-password
+ * ADMIN only — updates a user's password directly in the database
+ */
+authRouter.post(
+  '/users/:userId/change-password',
+  authenticate,
+  requireRole(UserRole.ADMIN),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { userId } = req.params;
+      const { password } = changePasswordSchema.parse(req.body);
+
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash },
+      });
+
+      res.json({ success: true, message: 'Password updated successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
