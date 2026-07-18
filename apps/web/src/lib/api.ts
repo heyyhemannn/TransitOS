@@ -37,6 +37,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       const refreshToken = useAuthStore.getState().refreshToken;
       if (!refreshToken) {
+        useAuthStore.getState().logout();
         return Promise.reject(error);
       }
 
