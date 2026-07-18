@@ -159,13 +159,18 @@ class WhatsAppService {
           this.isReady = false;
           this.isConnecting = false;
           const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
           this.connectedPhone = null;
           this.qrBase64 = null;
           broadcastSSE('status', { connected: false, phone: null });
 
-          logger.warn(`WhatsApp connection closed. Code=${statusCode} Reconnect=${shouldReconnect}`);
+          // Load auth state to check if we are paired
+          const { state } = await usePrismaAuthState();
+          const isPaired = !!state.creds?.me;
+          const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+          const shouldReconnect = !isLoggedOut && isPaired;
+
+          logger.warn(`WhatsApp connection closed. Code=${statusCode} IsLoggedOut=${isLoggedOut} IsPaired=${isPaired} Reconnect=${shouldReconnect}`);
 
           if (shouldReconnect) {
             // Re-initialize after 5 seconds
@@ -175,17 +180,15 @@ class WhatsAppService {
                 logger.error('Failed to re-initialize WhatsApp:', err);
               });
             }, 5000);
-          } else {
+          } else if (isLoggedOut) {
             // Logged out — clear session from DB
             logger.info('WhatsApp logged out. Clearing database session.');
             await prisma.whatsAppSession.deleteMany();
-            // Restart to generate new QR
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
-            this.reconnectTimeout = setTimeout(() => {
-              this.initialize().catch((err) => {
-                logger.error('Failed to restart WhatsApp after logout:', err);
-              });
-            }, 3000);
+          } else {
+            // Stopped waiting / QR expired / connection closed before pairing
+            logger.info('WhatsApp connection closed (not paired). Stopping auto-reconnection.');
+            if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
           }
         }
       });
