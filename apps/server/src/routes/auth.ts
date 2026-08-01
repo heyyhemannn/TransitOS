@@ -168,18 +168,20 @@ authRouter.post('/refresh', async (req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    // Verify that the refresh token exists in Redis
+    // Verify that the refresh token exists in Redis (soft check — allows graceful recovery after server restart)
     try {
       const redis = getRedis();
       const storedToken = await redis.get<string>(`refresh:${decoded.userId}`);
-      if (!storedToken || storedToken !== oldRefreshToken) {
+      // Only hard-reject if Redis explicitly holds a DIFFERENT token (token reuse / rotation attack).
+      // If storedToken is null (server restart wiped Redis/DB), trust the valid JWT signature and reissue.
+      if (storedToken && storedToken !== oldRefreshToken) {
+        logger.warn(`[Auth] Refresh token mismatch for user ${decoded.userId} — possible replay attack.`);
         res.status(401).json({ success: false, error: 'Unauthorized' });
         return;
       }
     } catch (redisError) {
-      logger.error('Redis connection failed during token refresh verification:', redisError);
-      res.status(500).json({ success: false, error: 'Internal server error' });
-      return;
+      // Redis unavailable — trust the JWT signature, proceed
+      logger.warn('Redis unavailable during refresh check — proceeding with JWT signature only:', redisError);
     }
 
     // Fetch user to verify they are still active

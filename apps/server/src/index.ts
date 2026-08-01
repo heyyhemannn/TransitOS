@@ -73,6 +73,7 @@ app.use(
       'X-Requested-With',
       'Accept',
       'Origin',
+      'x-refresh-token',
     ],
     exposedHeaders: ['Content-Disposition'],
     optionsSuccessStatus: 200, // Safari fix — 204 breaks Safari preflight

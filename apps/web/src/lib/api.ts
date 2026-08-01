@@ -29,20 +29,29 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 let isRefreshing = false;
 let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: unknown) => void }> = [];
 
+// Auth endpoints that must NEVER trigger a refresh retry (prevents infinite loop)
+const AUTH_BYPASS_PATHS = ['/auth/refresh', '/auth/login', '/auth/logout'];
+
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Only intercept 401s on non-auth endpoints that haven't been retried yet
+    const requestPath = originalRequest?.url ?? '';
+    const isAuthEndpoint = AUTH_BYPASS_PATHS.some((p) => requestPath.includes(p));
+
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       const refreshToken = useAuthStore.getState().refreshToken;
+
+      // No refresh token at all — redirect to login immediately
       if (!refreshToken) {
         useAuthStore.getState().logout();
         return Promise.reject(error);
       }
 
       if (isRefreshing) {
-        // Queue requests while refreshing
+        // Queue this request to retry once the refresh completes
         return new Promise((resolve, reject) => {
           refreshQueue.push({
             resolve: (token: string) => {
@@ -58,36 +67,45 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const refreshToken = useAuthStore.getState().refreshToken;
-        const res = await api.post<{ success: boolean; data: { accessToken: string; refreshToken?: string } }>(
-          '/auth/refresh',
+        // Send refresh token via body AND custom header — cross-origin cookies
+        // (Vercel → Render) are unreliable, so this ensures the server always gets it
+        const res = await axios.post<{ success: boolean; data: { accessToken: string; refreshToken: string } }>(
+          `${API_URL}/auth/refresh`,
           { refreshToken },
+          {
+            withCredentials: true,
+            headers: {
+              'Content-Type': 'application/json',
+              'x-refresh-token': refreshToken,
+            },
+            timeout: 15_000,
+          }
         );
-        const newToken = res.data.data.accessToken;
+
+        const newAccessToken = res.data.data.accessToken;
         const newRefreshToken = res.data.data.refreshToken;
 
-        if (newToken && newRefreshToken) {
-          useAuthStore.getState().setTokens(newToken, newRefreshToken);
-        } else if (newToken) {
-          useAuthStore.getState().setAccessToken(newToken);
-        }
+        // Store the rotated tokens
+        useAuthStore.getState().setTokens(newAccessToken, newRefreshToken);
 
-        // Flush queue
-        refreshQueue.forEach((cb) => cb.resolve(newToken));
+        // Flush all queued requests with new token
+        refreshQueue.forEach((cb) => cb.resolve(newAccessToken));
         refreshQueue = [];
 
-        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return api(originalRequest);
-      } catch {
-        // Refresh failed — logout and redirect
-        refreshQueue.forEach((cb) => cb.reject(error));
+      } catch (refreshError) {
+        // Refresh definitively failed — clear session and redirect to login
+        refreshQueue.forEach((cb) => cb.reject(refreshError));
         refreshQueue = [];
-        useAuthStore.getState().logout();
+
+        // Clear auth state without calling logout() API (server session already invalid)
+        useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, error: null });
 
         if (typeof window !== 'undefined') {
           window.location.href = '/login';
         }
-        return Promise.reject(error);
+        return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
       }
