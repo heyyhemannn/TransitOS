@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { whatsappService } from './whatsappService';
 import { MessageType } from '@prisma/client';
 import { cleanupOldStorageFiles } from './storageCleanupService';
+import { autoCreateFeeSchedule } from '../routes/students';
 
 // Helper: get all unpaid active students for current month, optionally 
 // filtered by school name(s)
@@ -49,6 +50,33 @@ function logJob(name: string, status: 'START' | 'END' | 'ERROR', detail?: string
 }
 
 export function initScheduler() {
+
+  // ── 1st of every month at 12:01 AM ──────────────────────────
+  // Auto-generate FeeSchedule records for ALL active students for the new month
+  // This ensures the dashboard resets to ₹0 collected fresh for the new billing cycle
+  cron.schedule('1 0 1 * *', async () => {
+    logJob('MONTHLY_FEE_SCHEDULE_GENERATION', 'START');
+    try {
+      const activeStudents = await prisma.student.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true, monthlyFee: true, name: true },
+      });
+      logJob('MONTHLY_FEE_SCHEDULE_GENERATION', 'START', `${activeStudents.length} active students`);
+      let created = 0;
+      for (const student of activeStudents) {
+        try {
+          await autoCreateFeeSchedule(student.id, student.monthlyFee);
+          created++;
+        } catch (err) {
+          logJob('MONTHLY_FEE_SCHEDULE_GENERATION', 'ERROR', `Student ${student.name}: ${String(err)}`);
+        }
+      }
+      logJob('MONTHLY_FEE_SCHEDULE_GENERATION', 'END', `Created/verified schedules for ${created}/${activeStudents.length} students`);
+    } catch (e) {
+      logJob('MONTHLY_FEE_SCHEDULE_GENERATION', 'ERROR', String(e));
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
 
   // ── 1st of every month, 9:00 AM ─────────────────────────────
   // Reminder 1 for ALL schools

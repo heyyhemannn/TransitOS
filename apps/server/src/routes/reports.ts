@@ -24,8 +24,7 @@ reportsRouter.get(
       const currentMonth = nowIST.getMonth() + 1;
       const currentYear = nowIST.getFullYear();
 
-      // If we are currently in June 2026, default dashboard view to July 2026 since we migrated schedules there
-      const month = req.query.month ? parseInt(req.query.month as string) : (currentMonth === 6 && currentYear === 2026 ? 7 : currentMonth);
+      const month = req.query.month ? parseInt(req.query.month as string) : currentMonth;
       const year = req.query.year ? parseInt(req.query.year as string) : currentYear;
 
       const [totalStudents, activeRoutes, feeSchedules, payments] = await Promise.all([
@@ -297,7 +296,7 @@ reportsRouter.get(
       const currentYear = nowIST.getFullYear();
 
       // July 2026 override default check as in statistics route
-      const month = req.query.month ? parseInt(req.query.month as string) : (currentMonth === 6 && currentYear === 2026 ? 7 : currentMonth);
+      const month = req.query.month ? parseInt(req.query.month as string) : currentMonth;
       const year = req.query.year ? parseInt(req.query.year as string) : currentYear;
 
       // 1. Fetch active students
