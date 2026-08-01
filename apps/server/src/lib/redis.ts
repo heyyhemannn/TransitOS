@@ -1,62 +1,100 @@
 import { Redis } from '@upstash/redis';
 import { logger } from './logger';
+import { prisma } from './prisma';
 
 let redisClient: any = null;
 
 /**
- * Local in-memory mock client to allow development out of the box
- * without requiring Upstash cloud database credentials.
+ * Database-backed persistent key-value store using the Settings table.
+ * Used as a graceful fallback when Upstash Redis is not configured,
+ * ensuring session persistence across Render restarts/spin-downs.
  */
-class MockRedis {
-  private store = new Map<string, { value: any; expiry: number | null }>();
-
+class DbSettingsRedis {
   async set(key: string, value: any, options?: { ex?: number }): Promise<'OK'> {
-    const expiry = options?.ex ? Date.now() + options.ex * 1000 : null;
-    this.store.set(key, { value, expiry });
-    return 'OK';
+    const expiry = options?.ex ? new Date(Date.now() + options.ex * 1000).toISOString() : null;
+    const dataStr = JSON.stringify({ value, expiry });
+    try {
+      await prisma.settings.upsert({
+        where: { key },
+        update: { value: dataStr },
+        create: { key, value: dataStr },
+      });
+      return 'OK';
+    } catch (err: any) {
+      logger.error(`[DbSettingsRedis] Error setting key ${key}: ${err.message}`);
+      return 'OK';
+    }
   }
 
   async get<T>(key: string): Promise<T | null> {
-    const item = this.store.get(key);
-    if (!item) return null;
-    if (item.expiry && Date.now() > item.expiry) {
-      this.store.delete(key);
+    try {
+      const record = await prisma.settings.findUnique({ where: { key } });
+      if (!record) return null;
+      const { value, expiry } = JSON.parse(record.value);
+      if (expiry && Date.now() > new Date(expiry).getTime()) {
+        await this.del(key);
+        return null;
+      }
+      return value as T;
+    } catch (err: any) {
+      logger.error(`[DbSettingsRedis] Error getting key ${key}: ${err.message}`);
       return null;
     }
-    return item.value as T;
   }
 
   async del(key: string): Promise<number> {
-    const deleted = this.store.delete(key);
-    return deleted ? 1 : 0;
+    try {
+      await prisma.settings.delete({ where: { key } });
+      return 1;
+    } catch {
+      // If record not found, delete throws, which we catch and return 0
+      return 0;
+    }
   }
 
   async incr(key: string): Promise<number> {
-    const current = (await this.get<number>(key)) ?? 0;
-    const next = current + 1;
-    await this.set(key, next);
-    return next;
+    try {
+      const current = (await this.get<number>(key)) ?? 0;
+      const next = current + 1;
+      await this.set(key, next);
+      return next;
+    } catch (err: any) {
+      logger.error(`[DbSettingsRedis] Error incrementing key ${key}: ${err.message}`);
+      return 0;
+    }
   }
 
   async expire(key: string, seconds: number): Promise<number> {
-    const item = this.store.get(key);
-    if (!item) return 0;
-    item.expiry = Date.now() + seconds * 1000;
-    return 1;
+    try {
+      const record = await prisma.settings.findUnique({ where: { key } });
+      if (!record) return 0;
+      const { value } = JSON.parse(record.value);
+      await this.set(key, value, { ex: seconds });
+      return 1;
+    } catch (err: any) {
+      logger.error(`[DbSettingsRedis] Error setting expiry for key ${key}: ${err.message}`);
+      return 0;
+    }
   }
 
   async ttl(key: string): Promise<number> {
-    const item = this.store.get(key);
-    if (!item) return -2;
-    if (item.expiry === null) return -1;
-    const remaining = Math.ceil((item.expiry - Date.now()) / 1000);
-    return remaining > 0 ? remaining : -2;
+    try {
+      const record = await prisma.settings.findUnique({ where: { key } });
+      if (!record) return -2;
+      const { expiry } = JSON.parse(record.value);
+      if (expiry === null) return -1;
+      const remaining = Math.ceil((new Date(expiry).getTime() - Date.now()) / 1000);
+      return remaining > 0 ? remaining : -2;
+    } catch (err: any) {
+      logger.error(`[DbSettingsRedis] Error getting TTL for key ${key}: ${err.message}`);
+      return -2;
+    }
   }
 }
 
 /**
  * Returns a Redis client.
- * Uses Upstash if configured, falls back to a graceful in-memory MockRedis locally.
+ * Uses Upstash if configured, falls back to a database-backed DbSettingsRedis cache.
  */
 export function getRedis(): Redis {
   if (redisClient) return redisClient;
@@ -65,8 +103,8 @@ export function getRedis(): Redis {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
   if (!url || !token) {
-    logger.warn('⚠️ Upstash Redis URL/Token is missing. Falling back to in-memory MockRedis cache.');
-    redisClient = new MockRedis();
+    logger.warn('⚠️ Upstash Redis URL/Token is missing. Falling back to persistent database-backed cache.');
+    redisClient = new DbSettingsRedis();
     return redisClient;
   }
 
@@ -74,8 +112,8 @@ export function getRedis(): Redis {
     redisClient = new Redis({ url, token });
     return redisClient;
   } catch (err) {
-    logger.error('Failed to initialize Upstash Redis. Falling back to in-memory MockRedis.', err);
-    redisClient = new MockRedis();
+    logger.error('Failed to initialize Upstash Redis. Falling back to database-backed cache.', err);
+    redisClient = new DbSettingsRedis();
     return redisClient;
   }
 }

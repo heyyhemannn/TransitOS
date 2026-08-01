@@ -632,7 +632,7 @@ function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof impor
       const status = err.response?.status;
       const serverMsg: string = err.response?.data?.error || '';
 
-      if (status === 503 || serverMsg.toLowerCase().includes('connection')) {
+      if (status === 503 && serverMsg.toLowerCase().includes('connection')) {
         toast({
           title: '⚠️ WhatsApp Disconnected',
           description: 'WhatsApp session dropped. Click "Sync Status" at the top of this page, wait for reconnection, then retry.',

@@ -103,11 +103,20 @@ app.use(requestLogger);
 // ─────────────────────────────────────────────────────────────────────────────
 // HEALTH CHECK
 // ─────────────────────────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => {
+app.get('/health', async (_req, res) => {
+  let dbStatus = 'ok';
+  try {
+    // Perform a quick query to keep Supabase active and verify database health
+    await prisma.$queryRaw`SELECT 1`;
+  } catch (err) {
+    dbStatus = 'error';
+  }
+
   res.json({
     success: true,
     data: {
-      status: 'ok',
+      status: dbStatus === 'ok' ? 'ok' : 'degraded',
+      db: dbStatus,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       version: process.env.npm_package_version ?? '1.0.0',

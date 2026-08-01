@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
 import { whatsappService } from './whatsappService';
 import { MessageType } from '@prisma/client';
+import { cleanupOldStorageFiles } from './storageCleanupService';
 
 // Helper: get all unpaid active students for current month, optionally 
 // filtered by school name(s)
@@ -279,6 +280,18 @@ View full report: https://transitos.vercel.app/reports`;
       logJob('MONTHLY_REPORT', 'END', `month: ${monthName}, collected: ₹${totalAmt}`);
     } catch (e) {
       logJob('MONTHLY_REPORT', 'ERROR', String(e));
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // ── Every day at midnight (12:00 AM) ──────────────────────────
+  // Clean up storage files (receipts & screenshots) older than 30 days
+  cron.schedule('0 0 * * *', async () => {
+    logJob('STORAGE_CLEANUP', 'START');
+    try {
+      await cleanupOldStorageFiles();
+      logJob('STORAGE_CLEANUP', 'END');
+    } catch (e) {
+      logJob('STORAGE_CLEANUP', 'ERROR', String(e));
     }
   }, { timezone: 'Asia/Kolkata' });
 
