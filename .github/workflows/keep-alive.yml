@@ -1,0 +1,37 @@
+name: Keep Render & Supabase Alive
+
+on:
+  schedule:
+    # Runs every 25 minutes — keeps Render free tier from sleeping
+    # GitHub Actions uses UTC; this covers 24/7
+    - cron: '*/25 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  ping:
+    name: Ping Health Endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Ping Render backend /health
+        run: |
+          echo "Pinging https://transitos-apd4.onrender.com/health ..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://transitos-apd4.onrender.com/health)
+          echo "Response status: $STATUS"
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Server is alive"
+          else
+            echo "⚠️ Server returned $STATUS — may be waking up (normal on free tier)"
+          fi
+
+      - name: Ping Vercel frontend
+        run: |
+          echo "Pinging https://transitos.vercel.app ..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://transitos.vercel.app)
+          echo "Response status: $STATUS"
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Frontend is alive"
+          else
+            echo "⚠️ Frontend returned $STATUS"
+          fi
