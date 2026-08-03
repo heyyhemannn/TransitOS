@@ -29,6 +29,8 @@
     "@radix-ui/react-toast": "^1.2.0",
     "@radix-ui/react-tooltip": "^1.1.0",
     "@stms/types": "*",
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.112.0",
     "@tanstack/react-query": "^5.39.0",
     "@tanstack/react-query-devtools": "^5.39.0",
     "@tanstack/react-table": "^8.17.3",
