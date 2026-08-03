@@ -27,7 +27,7 @@ async function loginRateLimiter(req: Request, res: Response, next: NextFunction)
   const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
   const key = `ratelimit:login:${ip}`;
   const windowMs = 15 * 60 * 1000; // 15 minutes
-  const maxAttempts = 5;
+  const maxAttempts = 20;
 
   try {
     const { count, ttl } = await incrementRateLimit(key, windowMs);
