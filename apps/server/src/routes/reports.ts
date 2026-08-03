@@ -27,23 +27,15 @@ reportsRouter.get(
       const month = req.query.month ? parseInt(req.query.month as string) : currentMonth;
       const year = req.query.year ? parseInt(req.query.year as string) : currentYear;
 
-      const [totalStudents, activeRoutes, feeSchedules, payments, activeStudentFees] = await Promise.all([
+      const [totalStudents, activeRoutes, payments, activeStudentFees] = await Promise.all([
         prisma.student.count({
-          where: { 
+          where: {
             status: StudentStatus.ACTIVE,
             routeId: { not: null },
           },
         }),
         prisma.route.count({
           where: { isActive: true },
-        }),
-        prisma.feeSchedule.findMany({
-          where: {
-            month,
-            year,
-            student: { status: StudentStatus.ACTIVE },
-          },
-          select: { amount: true, isPaid: true },
         }),
         prisma.payment.findMany({
           where: {
@@ -53,46 +45,39 @@ reportsRouter.get(
           },
           select: { amount: true },
         }),
-        // Fetch all active students' monthly fees as fallback for expectedRevenue
+        // Always fetch directly from students — this is ALWAYS correct
+        // FeeSchedules can be partial/missing; monthlyFee is the source of truth
         prisma.student.findMany({
           where: { status: StudentStatus.ACTIVE },
           select: { id: true, monthlyFee: true },
         }),
       ]);
 
+      // Target Revenue = sum of ALL active students' monthlyFee (always correct)
+      const expectedRevenue = activeStudentFees.reduce((sum, s) => sum + s.monthlyFee, 0);
+
+      // Collected = actual payments received this month
       const receivedRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
 
-      let pendingRevenue: number;
-      let expectedRevenue: number;
+      // Outstanding = what hasn't been paid yet
+      const pendingRevenue = Math.max(0, expectedRevenue - receivedRevenue);
 
-      if (feeSchedules.length > 0) {
-        // Normal case: FeeSchedule records exist for this month
-        pendingRevenue = feeSchedules.filter(s => !s.isPaid).reduce((sum, s) => sum + s.amount, 0);
-        expectedRevenue = receivedRevenue + pendingRevenue;
-      } else {
-        // Fallback: No FeeSchedules yet (server was down on 1st, or new month just started).
-        // Use sum of all active students' monthlyFee as the expected target.
-        const fallbackExpected = activeStudentFees.reduce((sum, s) => sum + s.monthlyFee, 0);
-        expectedRevenue = fallbackExpected;
-        pendingRevenue = Math.max(0, fallbackExpected - receivedRevenue);
-
-        // Auto-generate missing FeeSchedules in the background (don't await — don't block response)
-        if (month === currentMonth && year === currentYear) {
-          (async () => {
-            try {
-              const dueDate = new Date(Date.UTC(year, month - 1, 10, 4, 30, 0));
-              for (const student of activeStudentFees) {
-                await prisma.feeSchedule.upsert({
-                  where: { studentId_month_year: { studentId: student.id, month, year } },
-                  update: {},
-                  create: { studentId: student.id, month, year, dueDate, amount: student.monthlyFee, isPaid: false },
-                });
-              }
-            } catch (err) {
-              // background task — errors don't affect the response
+      // Auto-generate missing FeeSchedules in background (doesn't affect response)
+      if (month === currentMonth && year === currentYear) {
+        (async () => {
+          try {
+            const dueDate = new Date(Date.UTC(year, month - 1, 10, 4, 30, 0));
+            for (const student of activeStudentFees) {
+              await prisma.feeSchedule.upsert({
+                where: { studentId_month_year: { studentId: student.id, month, year } },
+                update: {},
+                create: { studentId: student.id, month, year, dueDate, amount: student.monthlyFee, isPaid: false },
+              });
             }
-          })();
-        }
+          } catch {
+            // background — never fails the response
+          }
+        })();
       }
 
       const whatsapp = getWhatsAppStatus();
