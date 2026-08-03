@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard,
   Users,
@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ShieldAlert,
   Bus,
+  RotateCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth';
@@ -28,6 +29,8 @@ import { useRoleAccess, canAccess, type AppRole } from '@/lib/role-access';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { useTheme } from 'next-themes';
+import { useToast } from '@/hooks/use-toast';
+
 
 import { RoleContext } from './RoleContext';
 
@@ -52,6 +55,8 @@ const ALL_NAV_ITEMS: SidebarItem[] = [
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { user, logout, accessToken } = useAuthStore();
   const { theme, setTheme } = useTheme();
   const { canMutate, isAdmin, isManager, allowedPaths, role } = useRoleAccess();
@@ -59,10 +64,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
+  const [isSyncing, setIsSyncing] = React.useState(false);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      await queryClient.invalidateQueries();
+      await queryClient.refetchQueries();
+      toast({
+        title: 'Sync Complete',
+        description: 'All status and data updated live.',
+        variant: 'success' as any,
+      });
+    } catch {
+      toast({
+        title: 'Sync Notice',
+        description: 'Data refreshed. Check connection if numbers delay.',
+        variant: 'destructive',
+      });
+    } finally {
+      setTimeout(() => setIsSyncing(false), 500);
+    }
+  };
 
   React.useEffect(() => {
     setMounted(true);
   }, []);
+
 
   // Touch swipe to close mobile menu
   const touchStartX = React.useRef<number>(0);
@@ -349,6 +377,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <div className="flex items-center gap-2 md:gap-3 shrink-0">
+              {/* One-Click Sync & Refresh Data Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSync}
+                disabled={isSyncing}
+                className="h-9 gap-1.5 font-bold text-xs border-slate-200 dark:border-slate-700 bg-card hover:bg-accent text-foreground shadow-sm transition-all"
+                title="Click to sync and refresh all live data across the app"
+              >
+                <RotateCw className={cn('h-3.5 w-3.5 text-primary transition-transform', isSyncing && 'animate-spin')} />
+                <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync Data'}</span>
+              </Button>
+
               {/* WhatsApp status — admin only, hidden on small screens */}
               {isAdmin && (
                 <div className="hidden sm:flex items-center gap-2 rounded-full border bg-accent/20 px-3 py-1 text-xs font-semibold">
@@ -376,6 +417,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
               </Button>
             </div>
+
           </header>
 
           {/* Dynamic page content */}
