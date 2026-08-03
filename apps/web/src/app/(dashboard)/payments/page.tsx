@@ -22,7 +22,9 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api } from '@/lib/api';
+import { formatDateTimeIST } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -593,8 +595,9 @@ export default function PaymentsPage() {
                       {payment.transactionId ? payment.transactionId.split('_')[0] : 'MANUAL-ENTRY'}
                     </span>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      {new Date(payment.paidAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                      {formatDateTimeIST(payment.paidAt || (payment as any).createdAt)}
                     </p>
+
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-black text-success">
@@ -742,8 +745,9 @@ export default function PaymentsPage() {
                         {payment.transactionId ? payment.transactionId.split('_')[0] : 'MANUAL-ENTRY'}
                       </span>
                       <div className="text-[10px] text-muted-foreground mt-1">
-                        {new Date(payment.paidAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                        {formatDateTimeIST(payment.paidAt || (payment as any).createdAt)}
                       </div>
+
                     </td>
                     <td className="p-4">
                       <div className="font-bold text-foreground">{payment.student?.name}</div>

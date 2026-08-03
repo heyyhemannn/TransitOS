@@ -18,8 +18,11 @@ export function formatCurrency(paise: number): string {
 }
 
 /** Format a UTC ISO string to IST display string */
-export function formatDateIST(dateStr: string, options?: Intl.DateTimeFormatOptions): string {
-  return new Date(dateStr).toLocaleDateString('en-IN', {
+export function formatDateIST(dateStr?: string | null, options?: Intl.DateTimeFormatOptions): string {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime()) || d.getFullYear() <= 1970) return '—';
+  return d.toLocaleDateString('en-IN', {
     timeZone: 'Asia/Kolkata',
     day: '2-digit',
     month: 'short',
@@ -29,8 +32,11 @@ export function formatDateIST(dateStr: string, options?: Intl.DateTimeFormatOpti
 }
 
 /** Format a UTC ISO string to IST date-time string */
-export function formatDateTimeIST(dateStr: string): string {
-  return new Date(dateStr).toLocaleString('en-IN', {
+export function formatDateTimeIST(dateStr?: string | null): string {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime()) || d.getFullYear() <= 1970) return '—';
+  return d.toLocaleString('en-IN', {
     timeZone: 'Asia/Kolkata',
     day: '2-digit',
     month: 'short',
@@ -39,6 +45,7 @@ export function formatDateTimeIST(dateStr: string): string {
     minute: '2-digit',
   });
 }
+
 
 /** Get month name from number (1-indexed) */
 export function getMonthName(month: number): string {
