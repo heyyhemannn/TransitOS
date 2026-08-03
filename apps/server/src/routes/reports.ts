@@ -8,6 +8,31 @@ import { getWhatsAppStatus } from '../services/whatsappService';
 export const reportsRouter = Router();
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LIGHTWEIGHT IN-MEMORY CACHE
+// Avoids hammering DB on every dashboard load. TTL-based, keyed by params.
+// ─────────────────────────────────────────────────────────────────────────────
+const cache = new Map<string, { data: unknown; expiresAt: number }>();
+
+function getCache<T>(key: string): T | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { cache.delete(key); return null; }
+  return entry.data as T;
+}
+
+function setCache(key: string, data: unknown, ttlMs: number): void {
+  cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
+// Clear cache for a month when a payment is recorded (called externally)
+export function invalidateReportsCache(month: number, year: number): void {
+  for (const key of cache.keys()) {
+    if (key.includes(`${month}-${year}`)) cache.delete(key);
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // API ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -26,6 +51,12 @@ reportsRouter.get(
 
       const month = req.query.month ? parseInt(req.query.month as string) : currentMonth;
       const year = req.query.year ? parseInt(req.query.year as string) : currentYear;
+      const isCurrentMonth = month === currentMonth && year === currentYear;
+
+      // Return cached response if available (60s for current month, 5min for past)
+      const cacheKey = `stats:${month}-${year}`;
+      const cached = getCache<object>(cacheKey);
+      if (cached) { res.json(cached); return; }
 
       const [totalStudents, activeRoutes, payments, activeStudentFees] = await Promise.all([
         prisma.student.count({
@@ -38,32 +69,21 @@ reportsRouter.get(
           where: { isActive: true },
         }),
         prisma.payment.findMany({
-          where: {
-            month,
-            year,
-            status: PaymentStatus.PAID,
-          },
+          where: { month, year, status: PaymentStatus.PAID },
           select: { amount: true },
         }),
-        // Always fetch directly from students — this is ALWAYS correct
-        // FeeSchedules can be partial/missing; monthlyFee is the source of truth
         prisma.student.findMany({
           where: { status: StudentStatus.ACTIVE },
           select: { id: true, monthlyFee: true },
         }),
       ]);
 
-      // Target Revenue = sum of ALL active students' monthlyFee (always correct)
       const expectedRevenue = activeStudentFees.reduce((sum, s) => sum + s.monthlyFee, 0);
-
-      // Collected = actual payments received this month
       const receivedRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
-
-      // Outstanding = what hasn't been paid yet
       const pendingRevenue = Math.max(0, expectedRevenue - receivedRevenue);
 
       // Auto-generate missing FeeSchedules in background (doesn't affect response)
-      if (month === currentMonth && year === currentYear) {
+      if (isCurrentMonth) {
         (async () => {
           try {
             const dueDate = new Date(Date.UTC(year, month - 1, 10, 4, 30, 0));
@@ -82,7 +102,7 @@ reportsRouter.get(
 
       const whatsapp = getWhatsAppStatus();
 
-      res.json({
+      const response = {
         success: true,
         data: {
           totalStudents,
@@ -92,7 +112,12 @@ reportsRouter.get(
           pendingRevenue,
           whatsappStatus: whatsapp.connected,
         },
-      });
+      };
+
+      // Cache: 60s for current month (live), 5min for past months (static)
+      setCache(cacheKey, response, isCurrentMonth ? 60_000 : 5 * 60_000);
+
+      res.json(response);
     } catch (error) {
       next(error);
     }
