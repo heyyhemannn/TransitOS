@@ -1,9 +1,4 @@
-import makeWASocket, {
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore,
-  WASocket,
-} from '@whiskeysockets/baileys';
+import type { WASocket } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import P from 'pino';
 import * as QRCode from 'qrcode';
@@ -110,6 +105,12 @@ class WhatsAppService {
     broadcastSSE('status', { connected: false, phone: null, authenticating: true });
 
     try {
+      const baileys = await import('@whiskeysockets/baileys');
+      const makeWASocket = baileys.default;
+      const fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
+      const makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore;
+      const DisconnectReason = baileys.DisconnectReason;
+
       const { state, saveCreds } = await usePrismaAuthState();
       const { version } = await fetchLatestBaileysVersion();
 
@@ -436,22 +437,38 @@ class WhatsAppService {
         let pdfBuffer: Buffer | null = null;
         const storagePath = `receipts/${payment.student.id}/${receiptId}.pdf`;
         
-        try {
-          const { supabase } = await import('../lib/supabase');
-          logger.info(`Attempting to download receipt PDF from Supabase storage: ${storagePath}`);
-          const { data, error } = await supabase.storage
-            .from('receipts')
-            .download(storagePath);
-            
-          if (error) {
-            logger.error(`Supabase storage download error for path ${storagePath}:`, error);
-          } else if (data) {
-            const arrayBuffer = await data.arrayBuffer();
-            pdfBuffer = Buffer.from(arrayBuffer);
-            logger.info(`Successfully downloaded receipt PDF from Supabase storage (${pdfBuffer.length} bytes).`);
+        // Check if stored locally or fallback to local disk
+        if (payment.receiptUrl.startsWith('LOCAL:')) {
+          try {
+            const pathInReceipts = payment.receiptUrl.replace('LOCAL:', '');
+            const localFilePath = path.resolve(process.cwd(), 'storage', pathInReceipts);
+            if (fs.existsSync(localFilePath)) {
+              pdfBuffer = fs.readFileSync(localFilePath);
+              logger.info(`Successfully read receipt PDF from local storage fallback (${pdfBuffer.length} bytes).`);
+            }
+          } catch (localErr) {
+            logger.error('Failed to read local PDF file in sendConfirmation:', localErr);
           }
-        } catch (storageErr) {
-          logger.error(`Failed to download receipt from storage via Supabase client:`, storageErr);
+        }
+
+        if (!pdfBuffer) {
+          try {
+            const { supabase } = await import('../lib/supabase');
+            logger.info(`Attempting to download receipt PDF from Supabase storage: ${storagePath}`);
+            const { data, error } = await supabase.storage
+              .from('receipts')
+              .download(storagePath);
+              
+            if (error) {
+              logger.error(`Supabase storage download error for path ${storagePath}:`, error);
+            } else if (data) {
+              const arrayBuffer = await data.arrayBuffer();
+              pdfBuffer = Buffer.from(arrayBuffer);
+              logger.info(`Successfully downloaded receipt PDF from Supabase storage (${pdfBuffer.length} bytes).`);
+            }
+          } catch (storageErr) {
+            logger.error(`Failed to download receipt from storage via Supabase client:`, storageErr);
+          }
         }
 
         // Fallback: If download failed but we have a public URL, try to fetch it via HTTP
@@ -468,6 +485,19 @@ class WhatsAppService {
             }
           } catch (fetchErr) {
             logger.error('Failed to fetch receipt PDF via HTTP fallback:', fetchErr);
+          }
+        }
+
+        // Fallback: Check local disk by path pattern if cloud options failed
+        if (!pdfBuffer) {
+          try {
+            const localFilePath = path.resolve(process.cwd(), 'storage', 'receipts', payment.student.id, `${receiptId}.pdf`);
+            if (fs.existsSync(localFilePath)) {
+              pdfBuffer = fs.readFileSync(localFilePath);
+              logger.info(`Successfully read fallback receipt PDF from local path (${pdfBuffer.length} bytes).`);
+            }
+          } catch (diskErr) {
+            logger.error('Failed to check fallback local disk path:', diskErr);
           }
         }
 

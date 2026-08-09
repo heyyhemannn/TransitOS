@@ -46,6 +46,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/lib/auth';
 import { Card } from '@/components/ui/card';
 import { usePageRole } from '../RoleContext';
+import { playChimeSound } from '@/lib/audio';
 
 
 const manualPaymentSchema = z.object({
@@ -178,8 +179,18 @@ export default function PaymentsPage() {
   const totalAmount = watchStudents.reduce((sum, s) => sum + (parseFloat(s.amount as any) || 0), 0);
 
   const handleReconcileManually = (row: any) => {
+    const topCandidate = row.topCandidates && row.topCandidates.length > 0 ? row.topCandidates[0].student : null;
+    const initialStudents = topCandidate
+      ? [{
+          studentId: topCandidate.id,
+          amount: row.credit ? parseFloat(String(row.credit).replace(/,/g, '')) : (topCandidate.monthlyFee / 100),
+          name: topCandidate.name,
+          school: topCandidate.school,
+        }]
+      : [];
+
     manualForm.reset({
-      students: [],
+      students: initialStudents,
       month: now.getMonth() + 1,
       year: now.getFullYear(),
       method: 'UPI',
@@ -371,6 +382,7 @@ export default function PaymentsPage() {
       await api.post('/payments', payload);
     },
     onSuccess: () => {
+      playChimeSound();
       toast({ title: 'Success', description: 'Manual payments recorded successfully', variant: 'success' });
       queryClient.invalidateQueries({ queryKey: ['payments-list'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
@@ -430,6 +442,7 @@ export default function PaymentsPage() {
       await api.patch(`/payments/${paymentId}/status`, { status });
     },
     onSuccess: (_, variables) => {
+      playChimeSound();
       toast({
         title: 'Status Updated',
         description: `Payment status manually changed to ${variables.status}. Confirmation dispatched.`,

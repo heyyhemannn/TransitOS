@@ -230,37 +230,56 @@ export class ReceiptService {
         doc.end();
       });
 
-      // Ensure the storage bucket exists
-      const { error: bucketError } = await supabase.storage.createBucket('receipts', { public: true });
-      if (bucketError) {
-        console.log(`[Receipt] Bucket check/creation info: ${bucketError.message}`);
+      let receiptUrl: string | null = null;
+      const fileName = `receipts/${payment.student.id}/${receiptId}.pdf`;
+
+      // Try Supabase Storage upload first
+      try {
+        await supabase.storage.createBucket('receipts', { public: true }).catch(() => {});
+        const { error } = await supabase.storage
+          .from('receipts')
+          .upload(fileName, pdfBuffer, {
+            contentType: 'application/pdf',
+            upsert: true,
+          });
+
+        if (!error) {
+          const { data: urlData } = supabase.storage
+            .from('receipts')
+            .getPublicUrl(fileName);
+          receiptUrl = urlData.publicUrl;
+        } else {
+          console.warn(`[Receipt] Supabase upload error, using local fallback: ${error.message}`);
+        }
+      } catch (cloudErr: any) {
+        console.warn(`[Receipt] Cloud storage unavailable (${cloudErr.message}), switching to local storage.`);
       }
 
-      // Upload to Supabase Storage
-      const fileName = `receipts/${payment.student.id}/${receiptId}.pdf`;
-      const { error } = await supabase.storage
-        .from('receipts')
-        .upload(fileName, pdfBuffer, {
-          contentType: 'application/pdf',
-          upsert: true,
+      // If cloud storage upload wasn't used or failed, write to local filesystem fallback
+      if (!receiptUrl) {
+        try {
+          const fs = await import('fs');
+          const path = await import('path');
+          const localDir = path.resolve(process.cwd(), 'storage', 'receipts', payment.student.id);
+          fs.mkdirSync(localDir, { recursive: true });
+          const filePath = path.join(localDir, `${receiptId}.pdf`);
+          fs.writeFileSync(filePath, pdfBuffer);
+          receiptUrl = `LOCAL:${fileName}`;
+          console.log(`[Receipt] Saved locally to: ${filePath}`);
+        } catch (fsErr) {
+          console.error('[Receipt] Failed to write local PDF file fallback:', fsErr);
+        }
+      }
+
+      // Save URL/reference back to payment record
+      if (receiptUrl) {
+        await prisma.payment.update({
+          where: { id: paymentId },
+          data: { receiptUrl },
         });
+      }
 
-      if (error) throw new Error(`Supabase upload failed: ${error.message}`);
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('receipts')
-        .getPublicUrl(fileName);
-
-      const receiptUrl = urlData.publicUrl;
-
-      // Save URL back to payment record
-      await prisma.payment.update({
-        where: { id: paymentId },
-        data: { receiptUrl },
-      });
-
-      console.log(`[Receipt] Generated: ${receiptId} → ${receiptUrl}`);
+      console.log(`[Receipt] Generated successfully: ${receiptId} → ${receiptUrl || 'in-memory'}`);
       return receiptUrl;
 
     } catch (error) {

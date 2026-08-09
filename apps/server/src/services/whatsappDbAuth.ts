@@ -1,11 +1,9 @@
 import { prisma } from '../lib/prisma';
-import { BufferJSON } from '@whiskeysockets/baileys/lib/Utils/generics';
-import { initAuthCreds } from '@whiskeysockets/baileys/lib/Utils/auth-utils';
-import { proto } from '@whiskeysockets/baileys';
 import type { SignalKeyStore, SignalDataTypeMap, SignalDataSet } from '@whiskeysockets/baileys/lib/Types/Auth';
 
 export async function usePrismaAuthState() {
-  
+  const { BufferJSON, initAuthCreds, proto } = await import('@whiskeysockets/baileys');
+
   const writeData = async (key: string, data: any) => {
     const value = JSON.stringify(data, BufferJSON.replacer);
     await prisma.whatsAppSession.upsert({

@@ -23,8 +23,14 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { toast } from '@/hooks/use-toast';
 
 const parentConfirmSchema = z.object({
-  phone: z.string().regex(/^\d{10}$/, 'Must be a valid 10-digit mobile number'),
-  transactionId: z.string().regex(/^\d{12}$/, 'Must be a valid 12-digit UPI transaction reference'),
+  phone: z
+    .string()
+    .transform((val) => val.replace(/\D/g, ''))
+    .pipe(z.string().regex(/^\d{10}$/, 'Must be a valid 10-digit mobile number')),
+  transactionId: z
+    .string()
+    .transform((val) => val.replace(/\s+/g, ''))
+    .pipe(z.string().regex(/^\d{12}$/, 'Must be a valid 12-digit UPI transaction reference')),
 });
 
 type ParentConfirmValues = z.infer<typeof parentConfirmSchema>;

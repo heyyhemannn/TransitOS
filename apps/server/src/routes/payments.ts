@@ -263,20 +263,47 @@ paymentsRouter.post(
                   : body.transactionId)
               : null;
 
-            const payment = await tx.payment.create({
-              data: {
-                studentId: alloc.studentId,
-                amount: amountPaise,
-                month: body.month,
-                year: body.year,
-                paidAt: actualNow,
-                transactionId: finalTxId,
-                method: body.method,
-                status: PaymentStatus.PAID,
-                remarks: body.remarks || 'Manual Payment Entry',
-                createdBy: req.user?.id,
+            // Check if a payment record already exists for this student/month/year
+            const existingForStudent = await tx.payment.findUnique({
+              where: {
+                studentId_month_year: {
+                  studentId: alloc.studentId,
+                  month: body.month,
+                  year: body.year,
+                },
               },
             });
+
+            let payment;
+            if (existingForStudent) {
+              payment = await tx.payment.update({
+                where: { id: existingForStudent.id },
+                data: {
+                  amount: amountPaise,
+                  paidAt: actualNow,
+                  transactionId: finalTxId || existingForStudent.transactionId,
+                  method: body.method,
+                  status: PaymentStatus.PAID,
+                  remarks: body.remarks || existingForStudent.remarks || 'Manual Payment Entry',
+                  createdBy: req.user?.id,
+                },
+              });
+            } else {
+              payment = await tx.payment.create({
+                data: {
+                  studentId: alloc.studentId,
+                  amount: amountPaise,
+                  month: body.month,
+                  year: body.year,
+                  paidAt: actualNow,
+                  transactionId: finalTxId,
+                  method: body.method,
+                  status: PaymentStatus.PAID,
+                  remarks: body.remarks || 'Manual Payment Entry',
+                  createdBy: req.user?.id,
+                },
+              });
+            }
 
             await tx.feeSchedule.upsert({
               where: {
@@ -494,6 +521,23 @@ paymentsRouter.get(
         return;
       }
 
+      if (receiptUrl.startsWith('LOCAL:')) {
+        const pathInReceipts = receiptUrl.replace('LOCAL:', '');
+        const fs = await import('fs');
+        const path = await import('path');
+        const localFilePath = path.resolve(process.cwd(), 'storage', pathInReceipts);
+        if (fs.existsSync(localFilePath)) {
+          // Serve file via base64 data URL or stream directly
+          const buffer = fs.readFileSync(localFilePath);
+          const base64 = buffer.toString('base64');
+          res.json({
+            success: true,
+            data: `data:application/pdf;base64,${base64}`,
+          });
+          return;
+        }
+      }
+
       // If it's a Supabase public URL for the receipts bucket, extract the relative storage path
       // to sign it and return a working URL.
       let storagePath = receiptUrl;
@@ -511,14 +555,36 @@ paymentsRouter.get(
         return;
       }
 
-      // Generate a signed URL for private Supabase Storage paths
-      const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
-      const signedUrl = await getSignedUrl(bucket, storagePath, 3600); // 1 hour expiry
+      try {
+        // Generate a signed URL for private Supabase Storage paths
+        const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
+        const signedUrl = await getSignedUrl(bucket, storagePath, 3600); // 1 hour expiry
 
-      res.json({
-        success: true,
-        data: signedUrl,
-      });
+        res.json({
+          success: true,
+          data: signedUrl,
+        });
+      } catch (signErr) {
+        // Fallback: Check local disk by paymentId / studentId
+        const fs = await import('fs');
+        const path = await import('path');
+        const shortMonth = new Date(payment.year, payment.month - 1)
+          .toLocaleString('en-US', { month: 'short' }).toUpperCase();
+        const receiptId = `PAY-${shortMonth}${payment.year}-${payment.id.slice(-6).toUpperCase()}`;
+        const localFilePath = path.resolve(process.cwd(), 'storage', 'receipts', payment.studentId, `${receiptId}.pdf`);
+
+        if (fs.existsSync(localFilePath)) {
+          const buffer = fs.readFileSync(localFilePath);
+          const base64 = buffer.toString('base64');
+          res.json({
+            success: true,
+            data: `data:application/pdf;base64,${base64}`,
+          });
+          return;
+        }
+
+        throw signErr;
+      }
     } catch (error) {
       next(error);
     }
@@ -549,7 +615,7 @@ paymentsRouter.patch(
         return;
       }
 
-      const baseTxId = payment.transactionId && payment.transactionId.includes('_')
+      const baseTxId = payment.transactionId
         ? payment.transactionId.split('_')[0]
         : null;
 
@@ -558,10 +624,10 @@ paymentsRouter.patch(
             where: {
               status: PaymentStatus.PENDING,
               transactionId: {
-                startsWith: `${baseTxId}_`
-              }
+                startsWith: baseTxId,
+              },
             },
-            include: { student: true }
+            include: { student: true },
           })
         : [];
 
@@ -915,20 +981,47 @@ publicPaymentsRouter.post(
             const item = paymentsToCreate[i];
             const dbTxId = isCollective ? `${transactionId}_${item.student.id}` : transactionId;
 
-            const payment = await tx.payment.create({
-              data: {
-                studentId: item.student.id,
-                amount: item.targetAmount,
-                month: item.targetMonth,
-                year: item.targetYear,
-                paidAt: paidAtValue,
-                transactionId: dbTxId,
-                method: 'UPI',
-                status: paymentStatus,
-                remarks: remarks + (isCollective ? ` (Collective payment ${i + 1}/${paymentsToCreate.length})` : ''),
-                screenshotUrl: screenshotStoragePath,
+            // Check if payment record already exists for this student/month/year
+            const existingForMonth = await tx.payment.findUnique({
+              where: {
+                studentId_month_year: {
+                  studentId: item.student.id,
+                  month: item.targetMonth,
+                  year: item.targetYear,
+                },
               },
             });
+
+            let payment;
+            if (existingForMonth) {
+              payment = await tx.payment.update({
+                where: { id: existingForMonth.id },
+                data: {
+                  amount: item.targetAmount,
+                  paidAt: paidAtValue,
+                  transactionId: dbTxId,
+                  method: 'UPI',
+                  status: paymentStatus,
+                  remarks: remarks + (isCollective ? ` (Collective payment ${i + 1}/${paymentsToCreate.length})` : ''),
+                  screenshotUrl: screenshotStoragePath || existingForMonth.screenshotUrl,
+                },
+              });
+            } else {
+              payment = await tx.payment.create({
+                data: {
+                  studentId: item.student.id,
+                  amount: item.targetAmount,
+                  month: item.targetMonth,
+                  year: item.targetYear,
+                  paidAt: paidAtValue,
+                  transactionId: dbTxId,
+                  method: 'UPI',
+                  status: paymentStatus,
+                  remarks: remarks + (isCollective ? ` (Collective payment ${i + 1}/${paymentsToCreate.length})` : ''),
+                  screenshotUrl: screenshotStoragePath,
+                },
+              });
+            }
             results.push(payment);
 
             if (isAutoConfirm) {
