@@ -444,11 +444,10 @@ class WhatsAppService {
       }
 
       const wamId = sentResult?.key?.id;
-      const initialStatus = sentResult?.status && sentResult.status >= 2 ? MessageStatus.SENT : MessageStatus.SENDING;
       const metaMessage = wamId ? `[WAM_ID: ${wamId}]` : null;
 
       await prisma.whatsAppMessage.create({
-        data: { studentId, phone, type, body, status: initialStatus, sentAt: now, errorMessage: metaMessage, createdAt: now },
+        data: { studentId, phone, type, body, status: MessageStatus.SENT, sentAt: now, errorMessage: metaMessage, createdAt: now },
       });
       return { success: true };
     } catch (err: any) {
