@@ -126,8 +126,10 @@ class WhatsAppService {
         printQRInTerminal: false,
         msgRetryCounterCache: new Map() as any,
         generateHighQualityLinkPreview: false,
-        syncFullHistory: false,
-        browser: ['TransitOS', 'Chrome', '1.0.0'],
+        browser: baileys.Browsers.macOS('Desktop'),
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 25000,
       });
 
       this.sock.ev.on('creds.update', saveCreds);
