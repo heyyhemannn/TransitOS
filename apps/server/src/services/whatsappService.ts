@@ -764,9 +764,9 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+"_***If already paid, please submit or share the payment proof with us so we can verify (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee.***_"
 
-Best regards,
+Thank you,
 {businessName}`,
 
   [MessageType.REMINDER_3]: `Dear {parentName},
@@ -780,9 +780,9 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional to prevent service disruption.)
+"_***If already paid, please submit or share the payment proof with us so we can verify (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee to prevent service disruption.***_"
 
-Best regards,
+Thank you,
 {businessName}`,
 
   [MessageType.FINAL]: `🚨 URGENT: Dear {parentName},
@@ -862,9 +862,9 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+"_***If already paid, please submit or share the payment proof with us so we can verify (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee.***_"
 
-Best regards,
+Thank you,
 {businessName}`,
 
   [MessageType.REMINDER_3]: `Dear {parentName},
@@ -881,9 +881,9 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional to prevent service disruption.)
+"_***If already paid, please submit or share the payment proof with us so we can verify (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee to prevent service disruption.***_"
 
-Best regards,
+Thank you,
 {businessName}`,
 
   [MessageType.FINAL]: `🚨 URGENT: Dear {parentName},
