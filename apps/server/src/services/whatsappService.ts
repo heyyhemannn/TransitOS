@@ -274,10 +274,28 @@ class WhatsAppService {
     return `${digits}@s.whatsapp.net`;
   }
 
+  private async getVerifiedJid(phone: string): Promise<string> {
+    const defaultJid = this.formatPhone(phone);
+    if (!this.sock) return defaultJid;
+    try {
+      const results = await this.sock.onWhatsApp(defaultJid);
+      if (results && results.length > 0) {
+        const match = results.find((r) => r.exists);
+        if (match && match.jid) {
+          logger.info(`Resolved verified WhatsApp JID for ${phone}: ${match.jid}`);
+          return match.jid;
+        }
+      }
+    } catch (err) {
+      logger.warn(`onWhatsApp check error for ${phone}, using default JID ${defaultJid}:`, err);
+    }
+    return defaultJid;
+  }
+
   private async enforceRateLimit() {
     const elapsed = Date.now() - this.lastSentAt;
     if (elapsed < 3000) {
-      await new Promise(resolve => setTimeout(resolve, 3000 - elapsed));
+      await new Promise((resolve) => setTimeout(resolve, 3000 - elapsed));
     }
     this.lastSentAt = Date.now();
   }
@@ -298,7 +316,6 @@ class WhatsAppService {
     retryCount = 0
   ): Promise<{ success: boolean; error?: string }> {
     const now = new Date();
-    const jid = this.formatPhone(phone);
 
     const isConnected = await this.ensureConnected();
 
@@ -310,6 +327,8 @@ class WhatsAppService {
       });
       return { success: false, error: errMsg };
     }
+
+    const jid = await this.getVerifiedJid(phone);
 
     try {
       await this.enforceRateLimit();
@@ -323,7 +342,7 @@ class WhatsAppService {
           path.resolve(__dirname, '../assets/payment_qr.jpg'),
           path.resolve(__dirname, '../../src/assets/payment_qr.jpg'),
         ];
-        const qrImagePath = candidatePaths.find(p => fs.existsSync(p)) ?? null;
+        const qrImagePath = candidatePaths.find((p) => fs.existsSync(p)) ?? null;
         try {
           if (qrImagePath) {
             const imageBuffer = fs.readFileSync(qrImagePath);
@@ -362,7 +381,7 @@ class WhatsAppService {
         logger.warn(`Connection drop detected (${errMsg}). Reconnecting and retrying send to ${phone}...`);
         this.isReady = false;
         await this.initialize().catch(() => {});
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
         return this.sendMessage(phone, body, studentId, type, retryCount + 1);
       }
 
@@ -385,7 +404,7 @@ class WhatsAppService {
     if (!student) throw new Error(`Student ${studentId} not found`);
 
     const settings = await prisma.settings.findMany();
-    const getSetting = (key: string) => settings.find(s => s.key === key)?.value ?? '';
+    const getSetting = (key: string) => settings.find((s) => s.key === key)?.value ?? '';
 
     const currentDate = new Date();
     const month = currentDate.getMonth() + 1;
@@ -447,16 +466,22 @@ class WhatsAppService {
 
     const paidDate = payment.paidAt
       ? new Date(payment.paidAt).toLocaleDateString('en-IN', {
-          day: '2-digit', month: 'short', year: 'numeric'
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
         })
       : new Date().toLocaleDateString('en-IN', {
-          day: '2-digit', month: 'short', year: 'numeric'
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
         });
 
     const shortMonth = new Date(payment.year, payment.month - 1)
-      .toLocaleString('en-US', { month: 'short' }).toUpperCase();
+      .toLocaleString('en-US', { month: 'short' })
+      .toUpperCase();
     const receiptId = `PAY-${shortMonth}${payment.year}-${paymentId.slice(-6).toUpperCase()}`;
 
+    // 1. Send Text Confirmation Template
     await this.sendTemplate(studentId, MessageType.CONFIRMATION, {
       receiptId,
       studentName: payment.student?.name ?? '',
@@ -465,11 +490,14 @@ class WhatsAppService {
       month: this.formatMonth(payment.month, payment.year),
     });
 
-    // Send the generated PDF receipt document as a WhatsApp message
+    // 1.5s delay between text confirmation and PDF bill document attachment for WhatsApp server ordering
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // 2. Send the generated PDF receipt document as a WhatsApp message
     const isConnected = await this.ensureConnected();
     if (payment.receiptUrl && isConnected && this.sock) {
       try {
-        const jid = this.formatPhone(payment.student.whatsappNumber);
+        const jid = await this.getVerifiedJid(payment.student.whatsappNumber);
         
         let pdfBuffer: Buffer | null = null;
         const storagePath = `receipts/${payment.student.id}/${receiptId}.pdf`;
@@ -508,27 +536,16 @@ class WhatsAppService {
           }
         }
 
-        // Fallback: If download failed but we have a public URL, try to fetch it via HTTP
-        if (!pdfBuffer && payment.receiptUrl.startsWith('http')) {
-          try {
-            logger.info(`Falling back to HTTP fetch for receipt URL: ${payment.receiptUrl}`);
-            const response = await fetch(payment.receiptUrl, { signal: AbortSignal.timeout(10000) });
-            if (response.ok) {
-              const arrayBuffer = await response.arrayBuffer();
-              pdfBuffer = Buffer.from(arrayBuffer);
-              logger.info(`Successfully fetched receipt PDF via HTTP (${pdfBuffer.length} bytes).`);
-            } else {
-              logger.error(`HTTP fetch failed with status: ${response.status} ${response.statusText}`);
-            }
-          } catch (fetchErr) {
-            logger.error('Failed to fetch receipt PDF via HTTP fallback:', fetchErr);
-          }
-        }
-
         // Fallback: Check local disk by path pattern if cloud options failed
         if (!pdfBuffer) {
           try {
-            const localFilePath = path.resolve(process.cwd(), 'storage', 'receipts', payment.student.id, `${receiptId}.pdf`);
+            const localFilePath = path.resolve(
+              process.cwd(),
+              'storage',
+              'receipts',
+              payment.student.id,
+              `${receiptId}.pdf`
+            );
             if (fs.existsSync(localFilePath)) {
               pdfBuffer = fs.readFileSync(localFilePath);
               logger.info(`Successfully read fallback receipt PDF from local path (${pdfBuffer.length} bytes).`);
@@ -543,40 +560,11 @@ class WhatsAppService {
             document: pdfBuffer,
             mimetype: 'application/pdf',
             fileName: `${receiptId}.pdf`,
-            caption: `🧾 Receipt for ${payment.student.name} - ${this.formatMonth(payment.month, payment.year)}`,
+            caption: `🧾 Bill Receipt for ${payment.student.name} - ${this.formatMonth(payment.month, payment.year)}`,
           });
-          logger.info(`Successfully sent receipt PDF to parent WhatsApp: ${payment.student.whatsappNumber}`);
+          logger.info(`Successfully sent receipt PDF document to parent WhatsApp (${payment.student.whatsappNumber}): ${receiptId}.pdf`);
         } else {
-          logger.warn(`Could not retrieve PDF buffer for payment ${paymentId}. Sending URL text fallback.`);
-          
-          // Generate a signed URL since the bucket might be private
-          let docUrl = payment.receiptUrl;
-          if (!docUrl.startsWith('http')) {
-            try {
-              const { getSignedUrl } = await import('../lib/supabase');
-              const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
-              docUrl = await getSignedUrl(bucket, payment.receiptUrl, 604800); // 7 days expiry
-            } catch (signErr) {
-              logger.error('Failed to sign URL for fallback text:', signErr);
-            }
-          } else {
-            // Even if it starts with http, if it's a supabase public URL and the bucket is private, we should sign it
-            const publicPrefix = '/storage/v1/object/public/receipts/';
-            if (docUrl.includes(publicPrefix)) {
-              try {
-                const pathInBucket = docUrl.split(publicPrefix)[1];
-                const { getSignedUrl } = await import('../lib/supabase');
-                const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'receipts';
-                docUrl = await getSignedUrl(bucket, pathInBucket, 604800); // 7 days expiry
-              } catch (signErr) {
-                logger.error('Failed to sign public URL for fallback text:', signErr);
-              }
-            }
-          }
-          
-          await this.sock.sendMessage(jid, {
-            text: `🧾 Receipt for ${payment.student.name} - ${this.formatMonth(payment.month, payment.year)}\nYou can view and download your receipt here: ${docUrl}`
-          });
+          logger.warn(`Could not retrieve PDF buffer for payment ${paymentId}. Sent text confirmation only.`);
         }
       } catch (pdfErr) {
         logger.error(`Failed to send receipt PDF document via WhatsApp for payment ${paymentId}:`, pdfErr);

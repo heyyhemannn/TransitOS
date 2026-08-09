@@ -587,9 +587,9 @@ whatsappRouter.post(
         return;
       }
 
-      // Use live socket check — more reliable than cached status flag
-      const actuallyConnected = !!(whatsappService.sock?.user?.id);
-      if (!actuallyConnected) {
+      // Ensure connection is open and active
+      const isConnected = await whatsappService.ensureConnected();
+      if (!isConnected) {
         res.status(503).json({ success: false, error: 'WhatsApp is not connected. Please Sync Status and pair QR first.' });
         return;
       }
