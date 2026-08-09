@@ -639,9 +639,62 @@ class WhatsAppService {
   ): Promise<{ sent: number; failed: number }> {
     let sent = 0, failed = 0;
 
-    // 1. Fetch all students in the list
+    let targetIds = studentIds;
+
+    // For reminder message types, filter out students who have ALREADY paid for current month/year
+    const isReminderType =
+      type === MessageType.REMINDER_1 ||
+      type === MessageType.REMINDER_2 ||
+      type === MessageType.REMINDER_3 ||
+      type === MessageType.FINAL;
+
+    if (isReminderType) {
+      const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const month = nowIST.getMonth() + 1;
+      const year = nowIST.getFullYear();
+
+      const unpaidStudents = await prisma.student.findMany({
+        where: {
+          id: { in: studentIds },
+          status: 'ACTIVE',
+          NOT: {
+            OR: [
+              {
+                payments: {
+                  some: {
+                    month,
+                    year,
+                    status: 'PAID',
+                  },
+                },
+              },
+              {
+                feeSchedules: {
+                  some: {
+                    month,
+                    year,
+                    isPaid: true,
+                  },
+                },
+              },
+            ],
+          },
+        },
+        select: { id: true },
+      });
+
+      targetIds = unpaidStudents.map((s) => s.id);
+      logger.info(`Unpaid filter applied for reminder ${type}: ${targetIds.length}/${studentIds.length} students eligible`);
+    }
+
+    if (targetIds.length === 0) {
+      logger.info(`No eligible unpaid students found to send ${type}.`);
+      return { sent: 0, failed: 0 };
+    }
+
+    // 1. Fetch all eligible students in the list
     const students = await prisma.student.findMany({
-      where: { id: { in: studentIds } },
+      where: { id: { in: targetIds } },
     });
 
     // 2. Group by WhatsApp number (clean formatting to match correctly)
