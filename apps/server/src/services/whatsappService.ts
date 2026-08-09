@@ -362,7 +362,7 @@ class WhatsAppService {
       return { success: false, error: errMsg };
     }
 
-    const jid = await this.getVerifiedJid(phone);
+    const jid = this.formatPhone(phone);
 
     try {
       await this.enforceRateLimit();
@@ -531,7 +531,7 @@ class WhatsAppService {
     const isConnected = await this.ensureConnected();
     if (payment.receiptUrl && isConnected && this.sock) {
       try {
-        const jid = await this.getVerifiedJid(payment.student.whatsappNumber);
+        const jid = this.formatPhone(payment.student.whatsappNumber);
         
         let pdfBuffer: Buffer | null = null;
         const storagePath = `receipts/${payment.student.id}/${receiptId}.pdf`;

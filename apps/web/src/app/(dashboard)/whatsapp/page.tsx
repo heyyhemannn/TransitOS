@@ -126,7 +126,7 @@ export default function WhatsAppPage() {
       const res = await api.get<{ data: WAStatus }>('/whatsapp/status');
       return res.data.data;
     },
-    refetchInterval: (query) => (query.state.data?.connected ? 30000 : 5000),
+    refetchInterval: (query) => (query.state.data?.connected ? 30000 : 15000),
     select: (data) => {
       if (!liveStatus) setLiveStatus(data);
       return data;
@@ -140,10 +140,7 @@ export default function WhatsAppPage() {
       return res.data.data;
     },
     enabled: liveStatus !== null ? !liveStatus.connected : true,
-    refetchInterval: () => {
-      const connected = liveStatus?.connected ?? polledStatus?.connected ?? false;
-      return connected ? false : 8000;
-    },
+    refetchInterval: false, // Static QR — no polling loop
     select: (data) => {
       if (liveQR === undefined && data.qr) setLiveQR(data.qr);
       return data;
