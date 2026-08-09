@@ -241,10 +241,15 @@ class WhatsAppService {
               });
             }, 3000);
           } else {
-            logger.info('WhatsApp connection closed (not paired). Stopping auto-reconnection.');
+            logger.info('WhatsApp QR code expired/closed before scan. Auto-generating fresh QR code (2s)...');
             this.connectedPhone = null;
-            broadcastSSE('status', { connected: false, phone: null });
+            broadcastSSE('status', { connected: false, phone: null, authenticating: true });
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = setTimeout(() => {
+              this.initialize().catch((err) => {
+                logger.error('Failed to auto-regenerate fresh QR code:', err);
+              });
+            }, 2000);
           }
         }
       });

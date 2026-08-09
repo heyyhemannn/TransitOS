@@ -140,7 +140,10 @@ export default function WhatsAppPage() {
       return res.data.data;
     },
     enabled: liveStatus !== null ? !liveStatus.connected : true,
-    refetchInterval: false, // Static QR — no polling loop
+    refetchInterval: () => {
+      const connected = liveStatus?.connected ?? polledStatus?.connected ?? false;
+      return connected ? false : 5000;
+    },
     select: (data) => {
       if (liveQR === undefined && data.qr) setLiveQR(data.qr);
       return data;
