@@ -225,6 +225,23 @@ export default function WhatsAppPage() {
     },
   });
 
+  // ─── Reset Session Mutation ───────────────────────────────────────────────────
+  const resetSessionMutation = useMutation({
+    mutationFn: async () => {
+      await api.post('/whatsapp/reset');
+    },
+    onSuccess: () => {
+      toast({ title: 'Session Purged & Reset', description: 'Stale WhatsApp session cleared. Fresh QR code generated.', variant: 'success' as any });
+      queryClient.invalidateQueries({ queryKey: ['wa-device-status'] });
+      queryClient.invalidateQueries({ queryKey: ['wa-qr-code'] });
+      setLiveStatus(null);
+      setLiveQR(undefined);
+    },
+    onError: (err: any) => {
+      toast({ title: 'Failed to Reset', description: err.response?.data?.error || 'Failed to reset session.', variant: 'destructive' });
+    },
+  });
+
   // ─── Refresh QR Mutation ───────────────────────────────────────────────────────
   const refreshQRMutation = useMutation({
     mutationFn: async () => {
@@ -339,19 +356,34 @@ export default function WhatsAppPage() {
                   ✨ Confirmation notifications and due alerts will now be sent automatically. Keep this session active.
                 </div>
                 {canMutate && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="mt-2 font-bold gap-2 shadow-md shadow-red-500/10"
-                    onClick={() => disconnectMutation.mutate()}
-                    disabled={disconnectMutation.isPending}
-                  >
-                    {disconnectMutation.isPending ? (
-                      <><Loader2 className="h-4 w-4 animate-spin" /> Disconnecting…</>
-                    ) : (
-                      <><Link2Off className="h-4 w-4" /> Disconnect Session</>
-                    )}
-                  </Button>
+                  <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="font-bold gap-2 shadow-md shadow-red-500/10"
+                      onClick={() => disconnectMutation.mutate()}
+                      disabled={disconnectMutation.isPending || resetSessionMutation.isPending}
+                    >
+                      {disconnectMutation.isPending ? (
+                        <><Loader2 className="h-4 w-4 animate-spin" /> Disconnecting…</>
+                      ) : (
+                        <><Link2Off className="h-4 w-4" /> Disconnect Session</>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="font-bold gap-2 border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                      onClick={() => resetSessionMutation.mutate()}
+                      disabled={resetSessionMutation.isPending || disconnectMutation.isPending}
+                    >
+                      {resetSessionMutation.isPending ? (
+                        <><Loader2 className="h-4 w-4 animate-spin" /> Resetting…</>
+                      ) : (
+                        <><RotateCcw className="h-4 w-4" /> Reset & Re-Pair</>
+                      )}
+                    </Button>
+                  </div>
                 )}
               </div>
             ) : isAuthenticating ? (

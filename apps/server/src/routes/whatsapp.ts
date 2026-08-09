@@ -692,16 +692,16 @@ whatsappRouter.post(
 );
 
 /**
- * POST /api/v1/whatsapp/refresh
- * Refresh/regenerate QR code by re-initializing Baileys client
+ * POST /api/v1/whatsapp/reset
+ * Reset session credentials in DB and generate a fresh QR code
  */
 whatsappRouter.post(
-  '/refresh',
+  '/reset',
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      await whatsappService.initialize();
-      res.json({ success: true, message: 'WhatsApp client re-initialization triggered' });
+      await whatsappService.resetSession();
+      res.json({ success: true, message: 'WhatsApp session reset successfully. Fresh QR code generated.' });
     } catch (error) {
       next(error);
     }

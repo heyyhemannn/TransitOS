@@ -174,12 +174,19 @@ class WhatsAppService {
           // Load auth state to check if we are paired
           const { state } = await usePrismaAuthState();
           const isPaired = !!state.creds?.me;
-          const isLoggedOut = statusCode === DisconnectReason.loggedOut;
-          const shouldReconnect = !isLoggedOut && isPaired;
+          const isInvalidSession = statusCode === DisconnectReason.loggedOut || statusCode === 440 || statusCode === 401;
+          const shouldReconnect = !isInvalidSession && isPaired;
 
-          logger.warn(`WhatsApp connection closed. Code=${statusCode} IsLoggedOut=${isLoggedOut} IsPaired=${isPaired} Reconnect=${shouldReconnect}`);
+          logger.warn(`WhatsApp connection closed. Code=${statusCode} IsInvalidSession=${isInvalidSession} IsPaired=${isPaired} Reconnect=${shouldReconnect}`);
 
-          if (shouldReconnect) {
+          if (isInvalidSession) {
+            logger.info(`WhatsApp session invalid or replaced (Code ${statusCode}). Purging database session for fresh QR pair.`);
+            await prisma.whatsAppSession.deleteMany();
+            if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+            this.initialize().catch((err) => {
+              logger.error('Failed to regenerate QR code after session purge:', err);
+            });
+          } else if (shouldReconnect) {
             // Re-initialize after 5 seconds
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = setTimeout(() => {
@@ -187,11 +194,6 @@ class WhatsAppService {
                 logger.error('Failed to re-initialize WhatsApp:', err);
               });
             }, 5000);
-          } else if (isLoggedOut) {
-            // Logged out — clear session from DB
-            logger.info('WhatsApp logged out. Clearing database session.');
-            await prisma.whatsAppSession.deleteMany();
-            if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
           } else {
             // Stopped waiting / QR expired / connection closed before pairing
             logger.info('WhatsApp connection closed (not paired). Stopping auto-reconnection.');
@@ -209,6 +211,24 @@ class WhatsAppService {
         });
       }, 10000);
     }
+  }
+
+  async resetSession(): Promise<void> {
+    logger.info('Manually resetting WhatsApp session and clearing session store...');
+    this.isReady = false;
+    this.isConnecting = false;
+    this.connectedPhone = null;
+    this.qrBase64 = null;
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners('connection.update');
+        this.sock.ev.removeAllListeners('creds.update');
+        this.sock.end(undefined);
+      } catch {}
+      this.sock = null;
+    }
+    await prisma.whatsAppSession.deleteMany();
+    await this.initialize();
   }
 
   getStatus() {
