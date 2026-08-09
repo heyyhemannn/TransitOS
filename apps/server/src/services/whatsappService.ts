@@ -206,14 +206,8 @@ class WhatsAppService {
   }
 
   getStatus() {
-    // Sync from live socket if possible
-    if (this.sock?.user?.id) {
-      this.isReady = true;
-      this.isConnecting = false;
-      this.connectedPhone = this.sock.user.id.split(':')[0];
-    }
     return {
-      connected: this.isReady,
+      connected: this.isReady && !!this.sock,
       phone: this.connectedPhone,
       qrCode: this.qrBase64,
     };
@@ -225,6 +219,38 @@ class WhatsAppService {
 
   getConnecting() {
     return this.isConnecting;
+  }
+
+  public async ensureConnected(maxWaitMs = 8000): Promise<boolean> {
+    if (this.isReady && this.sock) {
+      return true;
+    }
+
+    // Check if paired session exists in DB
+    try {
+      const { state } = await usePrismaAuthState();
+      const isPaired = !!state.creds?.me;
+      if (!isPaired) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+
+    logger.info('WhatsApp connection inactive/closing. Triggering auto-reconnect...');
+    this.initialize().catch((err) => {
+      logger.error('Auto-reconnect initialization error:', err);
+    });
+
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      if (this.isReady && this.sock) {
+        return true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    return this.isReady && !!this.sock;
   }
 
   private formatPhone(phone: string): string {
@@ -269,19 +295,14 @@ class WhatsAppService {
     body: string,
     studentId: string | null = null,
     type: MessageType = MessageType.BROADCAST,
+    retryCount = 0
   ): Promise<{ success: boolean; error?: string }> {
     const now = new Date();
     const jid = this.formatPhone(phone);
 
-    // Sync from live socket — most reliable check
-    const actuallyConnected = !!(this.sock?.user?.id);
-    if (actuallyConnected) {
-      this.isReady = true;
-      this.isConnecting = false;
-      this.connectedPhone = this.sock!.user!.id.split(':')[0];
-    }
+    const isConnected = await this.ensureConnected();
 
-    if (!actuallyConnected || !this.sock) {
+    if (!isConnected || !this.sock) {
       const errMsg = 'WhatsApp client is not connected. Please pair QR first.';
       logger.warn(`Cannot send message. Client not connected. Recipient: ${phone}`);
       await prisma.whatsAppMessage.create({
@@ -330,6 +351,21 @@ class WhatsAppService {
     } catch (err: any) {
       const errMsg = err?.message || 'Unknown send error in WhatsApp client';
       logger.error(`Failed to send WhatsApp message to ${phone}:`, err);
+
+      const isConnErr =
+        errMsg.toLowerCase().includes('connection') ||
+        errMsg.toLowerCase().includes('closed') ||
+        errMsg.toLowerCase().includes('socket') ||
+        errMsg.toLowerCase().includes('stream');
+
+      if (isConnErr && retryCount < 1) {
+        logger.warn(`Connection drop detected (${errMsg}). Reconnecting and retrying send to ${phone}...`);
+        this.isReady = false;
+        await this.initialize().catch(() => {});
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return this.sendMessage(phone, body, studentId, type, retryCount + 1);
+      }
+
       await prisma.whatsAppMessage.create({
         data: { studentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
       });
@@ -430,7 +466,8 @@ class WhatsAppService {
     });
 
     // Send the generated PDF receipt document as a WhatsApp message
-    if (payment.receiptUrl && this.sock && this.sock.user?.id) {
+    const isConnected = await this.ensureConnected();
+    if (payment.receiptUrl && isConnected && this.sock) {
       try {
         const jid = this.formatPhone(payment.student.whatsappNumber);
         
