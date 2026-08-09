@@ -426,7 +426,7 @@ export default function WhatsAppPage() {
                 <div className="text-xs text-muted-foreground max-w-xs leading-relaxed">
                   Open WhatsApp → <span className="font-semibold text-foreground">Linked Devices</span> → scan QR.
                   <br />
-                  <span className="text-amber-600 dark:text-amber-400 mt-1 block">⚠ QR refreshes every ~60s.</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 mt-1 block font-medium">🔒 Permanent Session — Once paired, connection remains active until manually logged out.</span>
                 </div>
               </div>
             )}
@@ -435,8 +435,8 @@ export default function WhatsAppPage() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <HelpCircle className="h-4 w-4" />
               <span>
-                Session persists across restarts via DB.{' '}
-                <span className="text-amber-600 dark:text-amber-400 font-medium">Re-scan only needed if session expires.</span>
+                Session persists permanently across server restarts.{' '}
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">No periodic QR re-scanning needed.</span>
               </span>
             </div>
           </CardFooter>
