@@ -154,22 +154,30 @@ class WhatsAppService {
         }
       });
 
-      // Event listener for message updates (status >= 3 indicates delivery to server/recipient)
+      // Event listener for message updates (status 2 = Server ACK, status 3 = Delivery ACK)
       this.sock.ev.on('messages.update', async (updates) => {
         for (const u of updates) {
           const messageId = u.key.id;
           const statusVal = u.update.status;
-          if (messageId && statusVal && statusVal >= 3) {
+          if (messageId && statusVal !== undefined && statusVal !== null) {
             try {
-              await prisma.whatsAppMessage.updateMany({
-                where: {
-                  errorMessage: { contains: messageId },
-                  status: MessageStatus.SENT,
-                },
-                data: { status: MessageStatus.DELIVERED },
-              });
+              let targetStatus: MessageStatus | null = null;
+              if (statusVal >= 3) {
+                targetStatus = MessageStatus.DELIVERED;
+              } else if (statusVal >= 2) {
+                targetStatus = MessageStatus.SENT;
+              }
+
+              if (targetStatus) {
+                await prisma.whatsAppMessage.updateMany({
+                  where: {
+                    errorMessage: { contains: messageId },
+                  },
+                  data: { status: targetStatus },
+                });
+              }
             } catch (err) {
-              logger.warn('Error updating DELIVERED status from messages.update:', err);
+              logger.warn('Error updating status from messages.update:', err);
             }
           }
         }
@@ -395,10 +403,11 @@ class WhatsAppService {
     const now = new Date();
 
     const isConnected = await this.ensureConnected();
+    const isWsOpen = this.sock && (this.sock.ws as any)?.isOpen !== false;
 
-    if (!isConnected || !this.sock) {
-      const errMsg = 'WhatsApp client is not connected. Please pair QR first.';
-      logger.warn(`Cannot send message. Client not connected. Recipient: ${phone}`);
+    if (!isConnected || !this.sock || !isWsOpen) {
+      const errMsg = 'WhatsApp connection stream is inactive. Please pair QR first.';
+      logger.warn(`Cannot send message. Client stream inactive. Recipient: ${phone}`);
       await prisma.whatsAppMessage.create({
         data: { studentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
       });
@@ -441,10 +450,11 @@ class WhatsAppService {
       }
 
       const wamId = sentResult?.key?.id;
+      const initialStatus = sentResult?.status && sentResult.status >= 2 ? MessageStatus.SENT : MessageStatus.SENDING;
       const metaMessage = wamId ? `[WAM_ID: ${wamId}]` : null;
 
       await prisma.whatsAppMessage.create({
-        data: { studentId, phone, type, body, status: MessageStatus.SENT, sentAt: now, errorMessage: metaMessage, createdAt: now },
+        data: { studentId, phone, type, body, status: initialStatus, sentAt: now, errorMessage: metaMessage, createdAt: now },
       });
       return { success: true };
     } catch (err: any) {
