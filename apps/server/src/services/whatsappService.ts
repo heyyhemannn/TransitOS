@@ -171,32 +171,37 @@ class WhatsAppService {
           this.qrBase64 = null;
           broadcastSSE('status', { connected: false, phone: null });
 
-          // Load auth state to check if we are paired
+          // Load auth state to check if we are paired in database
           const { state } = await usePrismaAuthState();
           const isPaired = !!state.creds?.me;
-          const isInvalidSession = statusCode === DisconnectReason.loggedOut || statusCode === 440 || statusCode === 401;
-          const shouldReconnect = !isInvalidSession && isPaired;
+          const isExplicitLogout = statusCode === DisconnectReason.loggedOut; // Only 401 explicit logout
+          const shouldReconnect = !isExplicitLogout && isPaired;
 
-          logger.warn(`WhatsApp connection closed. Code=${statusCode} IsInvalidSession=${isInvalidSession} IsPaired=${isPaired} Reconnect=${shouldReconnect}`);
+          logger.warn(`WhatsApp connection closed. Code=${statusCode} IsPaired=${isPaired} ExplicitLogout=${isExplicitLogout} Reconnect=${shouldReconnect}`);
 
-          if (isInvalidSession) {
-            logger.info(`WhatsApp session invalid or replaced (Code ${statusCode}). Purging database session for fresh QR pair.`);
+          if (isExplicitLogout) {
+            // Explicit logout from WhatsApp mobile app -> clear DB session
+            logger.info('WhatsApp explicitly logged out from mobile app. Purging database session.');
             await prisma.whatsAppSession.deleteMany();
+            this.connectedPhone = null;
+            this.qrBase64 = null;
+            broadcastSSE('status', { connected: false, phone: null });
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
-            this.initialize().catch((err) => {
-              logger.error('Failed to regenerate QR code after session purge:', err);
-            });
           } else if (shouldReconnect) {
-            // Re-initialize after 5 seconds
+            // Persistent session exists in DB! Auto-reconnect after 3s without purging session keys
+            logger.info('Paired session detected in DB. Auto-reconnecting in background (3s)...');
+            broadcastSSE('status', { connected: false, phone: this.connectedPhone, connecting: true });
+
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = setTimeout(() => {
               this.initialize().catch((err) => {
-                logger.error('Failed to re-initialize WhatsApp:', err);
+                logger.error('Failed to auto-reconnect WhatsApp in background:', err);
               });
-            }, 5000);
+            }, 3000);
           } else {
-            // Stopped waiting / QR expired / connection closed before pairing
-            logger.info('WhatsApp connection closed (not paired). Stopping auto-reconnection.');
+            // Not paired yet -> waiting for first QR scan
+            this.connectedPhone = null;
+            broadcastSSE('status', { connected: false, phone: null });
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
           }
         }
@@ -301,10 +306,13 @@ class WhatsAppService {
   }
 
   private async getVerifiedJid(phone: string): Promise<string> {
-    const defaultJid = this.formatPhone(phone);
+    let cleanDigits = phone.replace(/\D/g, '');
+    if (cleanDigits.length === 10) cleanDigits = `91${cleanDigits}`;
+    const defaultJid = `${cleanDigits}@s.whatsapp.net`;
+
     if (!this.sock) return defaultJid;
     try {
-      const results = await this.sock.onWhatsApp(defaultJid);
+      const results = await this.sock.onWhatsApp(cleanDigits);
       if (results && results.length > 0) {
         const match = results.find((r) => r.exists);
         if (match && match.jid) {
