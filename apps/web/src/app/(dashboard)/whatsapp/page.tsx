@@ -687,9 +687,12 @@ function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof impor
   });
 
   const STATUS_COLORS: Record<string, string> = {
-    SENT: 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20',
-    FAILED: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
+    DELIVERED: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30',
+    SENT: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+    SENDING: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
     PENDING: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+    QUEUED: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20',
+    FAILED: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
   };
 
   return (
@@ -703,14 +706,16 @@ function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof impor
           <CardDescription>Recent WhatsApp messages sent through the system</CardDescription>
         </div>
         <Select defaultValue="ALL" onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-8 text-xs w-32">
+          <SelectTrigger className="h-8 text-xs w-36">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">All Status</SelectItem>
-            <SelectItem value="SENT">Sent</SelectItem>
+            <SelectItem value="DELIVERED">Delivered ✔✔</SelectItem>
+            <SelectItem value="SENT">Sent to Server</SelectItem>
             <SelectItem value="FAILED">Failed</SelectItem>
             <SelectItem value="PENDING">Pending</SelectItem>
+            <SelectItem value="QUEUED">Queued</SelectItem>
           </SelectContent>
         </Select>
       </CardHeader>
@@ -746,7 +751,7 @@ function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof impor
                     <td className="py-3 px-3 text-xs font-mono text-muted-foreground">{log.phone}</td>
                     <td className="py-3 px-3">
                       <Badge className={`border font-bold text-[10px] uppercase ${STATUS_COLORS[log.status] ?? ''}`}>
-                        {log.status}
+                        {log.status === 'DELIVERED' ? 'Delivered ✔✔' : log.status === 'SENT' ? 'Sent to Server' : log.status}
                       </Badge>
                     </td>
                     <td className="py-3 px-3 max-w-[180px]">

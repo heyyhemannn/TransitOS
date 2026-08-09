@@ -1,81 +1,56 @@
+import * as path from 'path';
+import * as fs from 'fs';
 import { prisma } from '../lib/prisma';
-import type { SignalKeyStore, SignalDataTypeMap, SignalDataSet } from '@whiskeysockets/baileys/lib/Types/Auth';
+import { logger } from '../lib/logger';
 
 export async function usePrismaAuthState() {
-  const { BufferJSON, initAuthCreds, proto } = await import('@whiskeysockets/baileys');
+  const baileys = await import('@whiskeysockets/baileys');
+  const sessionDir = path.resolve(
+    process.cwd(),
+    process.env.WHATSAPP_SESSION_PATH || './whatsapp-session'
+  );
 
-  const writeData = async (key: string, data: any) => {
-    const value = JSON.stringify(data, BufferJSON.replacer);
-    await prisma.whatsAppSession.upsert({
-      where: { key },
-      update: { value },
-      create: { key, value },
-    });
-  };
-
-  const readData = async (key: string) => {
-    const row = await prisma.whatsAppSession.findUnique({ where: { key } });
-    if (!row) return null;
-    return JSON.parse(row.value, BufferJSON.reviver);
-  };
-
-  const removeData = async (key: string) => {
-    await prisma.whatsAppSession.deleteMany({ where: { key } });
-  };
-
-  // Load existing creds or create fresh ones
-  const creds = (await readData('creds')) ?? initAuthCreds();
-
-  if (creds.me) {
-    creds.registered = true;
+  if (!fs.existsSync(sessionDir)) {
+    fs.mkdirSync(sessionDir, { recursive: true });
   }
 
-  const keys: SignalKeyStore = {
-    get: async <T extends keyof SignalDataTypeMap>(type: T, ids: string[]) => {
-      const data: Record<string, SignalDataTypeMap[T]> = {};
-      await Promise.all(
-        ids.map(async (id) => {
-          let value = await readData(`${type}-${id}`);
-          if (value) {
-            if (type === 'app-state-sync-key') {
-              value = proto.Message.AppStateSyncKeyData.fromObject(value);
-            }
-            data[id] = value as SignalDataTypeMap[T];
-          }
-        })
-      );
-      return data;
-    },
-    set: async (data: SignalDataSet) => {
-      const tasks: Promise<void>[] = [];
-      for (const type of Object.keys(data) as (keyof SignalDataSet)[]) {
-        const categoryData = data[type];
-        if (!categoryData) continue;
+  // Use Baileys native multi-file auth state for 100% reliable session persistence
+  const multiFileState = await baileys.useMultiFileAuthState(sessionDir);
 
-        for (const id of Object.keys(categoryData)) {
-          const value = categoryData[id];
-          const key = `${type}-${id}`;
-          tasks.push(
-            value
-              ? writeData(key, value)
-              : removeData(key)
-          );
-        }
-      }
-      await Promise.all(tasks);
-    },
-  };
+  if (multiFileState.state.creds.me) {
+    multiFileState.state.creds.registered = true;
+  }
 
   return {
-    state: {
-      creds,
-      keys,
-    },
+    state: multiFileState.state,
     saveCreds: async () => {
-      if (creds.me) {
-        creds.registered = true;
+      try {
+        if (multiFileState.state.creds.me) {
+          multiFileState.state.creds.registered = true;
+        }
+        await multiFileState.saveCreds();
+
+        // Backup primary creds to database for persistent resilience
+        const value = JSON.stringify(multiFileState.state.creds, baileys.BufferJSON.replacer);
+        await prisma.whatsAppSession.upsert({
+          where: { key: 'creds' },
+          update: { value },
+          create: { key: 'creds', value },
+        });
+      } catch (err) {
+        logger.warn('Failed to back up WhatsApp creds to DB:', err);
       }
-      await writeData('creds', creds);
+    },
+    clearSession: async () => {
+      try {
+        await prisma.whatsAppSession.deleteMany();
+        if (fs.existsSync(sessionDir)) {
+          fs.rmSync(sessionDir, { recursive: true, force: true });
+          fs.mkdirSync(sessionDir, { recursive: true });
+        }
+      } catch (err) {
+        logger.error('Failed to clear WhatsApp session files/DB:', err);
+      }
     },
   };
 }

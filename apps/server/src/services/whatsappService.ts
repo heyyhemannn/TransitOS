@@ -132,6 +132,47 @@ class WhatsAppService {
 
       this.sock.ev.on('creds.update', saveCreds);
 
+      // Event listener for message receipt delivery updates (double ticks)
+      this.sock.ev.on('message-receipt.update', async (receipts) => {
+        for (const r of receipts) {
+          const messageId = r.key.id;
+          if (messageId) {
+            try {
+              await prisma.whatsAppMessage.updateMany({
+                where: {
+                  errorMessage: { contains: messageId },
+                  status: MessageStatus.SENT,
+                },
+                data: { status: MessageStatus.DELIVERED },
+              });
+            } catch (err) {
+              logger.warn('Error updating DELIVERED status from receipt:', err);
+            }
+          }
+        }
+      });
+
+      // Event listener for message updates (status >= 3 indicates delivery to server/recipient)
+      this.sock.ev.on('messages.update', async (updates) => {
+        for (const u of updates) {
+          const messageId = u.key.id;
+          const statusVal = u.update.status;
+          if (messageId && statusVal && statusVal >= 3) {
+            try {
+              await prisma.whatsAppMessage.updateMany({
+                where: {
+                  errorMessage: { contains: messageId },
+                  status: MessageStatus.SENT,
+                },
+                data: { status: MessageStatus.DELIVERED },
+              });
+            } catch (err) {
+              logger.warn('Error updating DELIVERED status from messages.update:', err);
+            }
+          }
+        }
+      });
+
       this.sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
@@ -171,8 +212,6 @@ class WhatsAppService {
           this.qrBase64 = null;
           broadcastSSE('status', { connected: false, phone: null });
 
-          // Load auth state to check if we are paired in database
-          const { state } = await usePrismaAuthState();
           const isPaired = !!state.creds?.me;
           const isExplicitLogout = statusCode === DisconnectReason.loggedOut; // Only 401 explicit logout
           const shouldReconnect = !isExplicitLogout && isPaired;
@@ -180,16 +219,15 @@ class WhatsAppService {
           logger.warn(`WhatsApp connection closed. Code=${statusCode} IsPaired=${isPaired} ExplicitLogout=${isExplicitLogout} Reconnect=${shouldReconnect}`);
 
           if (isExplicitLogout) {
-            // Explicit logout from WhatsApp mobile app -> clear DB session
-            logger.info('WhatsApp explicitly logged out from mobile app. Purging database session.');
-            await prisma.whatsAppSession.deleteMany();
+            logger.info('WhatsApp explicitly logged out from mobile app. Purging session.');
+            const { clearSession } = await usePrismaAuthState();
+            await clearSession();
             this.connectedPhone = null;
             this.qrBase64 = null;
             broadcastSSE('status', { connected: false, phone: null });
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
           } else if (shouldReconnect) {
-            // Persistent session exists in DB! Auto-reconnect after 3s without purging session keys
-            logger.info('Paired session detected in DB. Auto-reconnecting in background (3s)...');
+            logger.info('Paired session detected in DB/storage. Auto-reconnecting in background (3s)...');
             broadcastSSE('status', { connected: false, phone: this.connectedPhone, connecting: true });
 
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
@@ -199,7 +237,7 @@ class WhatsAppService {
               });
             }, 3000);
           } else {
-            // Not paired yet -> waiting for first QR scan
+            logger.info('WhatsApp connection closed (not paired). Stopping auto-reconnection.');
             this.connectedPhone = null;
             broadcastSSE('status', { connected: false, phone: null });
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
@@ -228,11 +266,14 @@ class WhatsAppService {
       try {
         this.sock.ev.removeAllListeners('connection.update');
         this.sock.ev.removeAllListeners('creds.update');
+        this.sock.ev.removeAllListeners('message-receipt.update');
+        this.sock.ev.removeAllListeners('messages.update');
         this.sock.end(undefined);
       } catch {}
       this.sock = null;
     }
-    await prisma.whatsAppSession.deleteMany();
+    const { clearSession } = await usePrismaAuthState();
+    await clearSession();
     await this.initialize();
   }
 
@@ -367,9 +408,9 @@ class WhatsAppService {
     try {
       await this.enforceRateLimit();
 
+      let sentResult: any = null;
+
       if (type === MessageType.REMINDER_1) {
-        // Attempt to send payment QR image as media
-        // Try multiple paths: monorepo root, server cwd, and __dirname-relative
         const candidatePaths = [
           path.resolve(process.cwd(), 'apps/server/src/assets/payment_qr.jpg'),
           path.resolve(process.cwd(), 'src/assets/payment_qr.jpg'),
@@ -380,25 +421,28 @@ class WhatsAppService {
         try {
           if (qrImagePath) {
             const imageBuffer = fs.readFileSync(qrImagePath);
-            await this.sock.sendMessage(jid, {
+            sentResult = await this.sock.sendMessage(jid, {
               image: imageBuffer,
               caption: body,
               mimetype: 'image/jpeg',
             });
           } else {
             logger.warn(`Payment QR image not found in any candidate path. Sending text only.`);
-            await this.sock.sendMessage(jid, { text: body });
+            sentResult = await this.sock.sendMessage(jid, { text: body });
           }
         } catch (mediaErr) {
           logger.error('Failed to send QR image media, falling back to text:', mediaErr);
-          await this.sock.sendMessage(jid, { text: body });
+          sentResult = await this.sock.sendMessage(jid, { text: body });
         }
       } else {
-        await this.sock.sendMessage(jid, { text: body });
+        sentResult = await this.sock.sendMessage(jid, { text: body });
       }
 
+      const wamId = sentResult?.key?.id;
+      const metaMessage = wamId ? `[WAM_ID: ${wamId}]` : null;
+
       await prisma.whatsAppMessage.create({
-        data: { studentId, phone, type, body, status: MessageStatus.SENT, sentAt: now, createdAt: now },
+        data: { studentId, phone, type, body, status: MessageStatus.SENT, sentAt: now, errorMessage: metaMessage, createdAt: now },
       });
       return { success: true };
     } catch (err: any) {
