@@ -708,4 +708,21 @@ whatsappRouter.post(
   }
 );
 
+/**
+ * POST /api/v1/whatsapp/refresh
+ * Refresh/regenerate QR code by re-initializing Baileys client
+ */
+whatsappRouter.post(
+  '/refresh',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      await whatsappService.initialize();
+      res.json({ success: true, message: 'WhatsApp client re-initialization triggered' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 
