@@ -154,6 +154,12 @@ class WhatsAppService {
           this.connectedPhone = this.sock?.user?.id?.split(':')[0] ?? null;
           logger.info(`WhatsApp connected. Phone: ${this.connectedPhone}`);
           broadcastSSE('status', { connected: true, phone: this.connectedPhone });
+          try {
+            state.creds.registered = true;
+            await saveCreds();
+          } catch (err) {
+            logger.warn('Failed to save creds on connection open:', err);
+          }
         }
 
         if (connection === 'close') {

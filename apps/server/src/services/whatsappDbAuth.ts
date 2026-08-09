@@ -26,6 +26,10 @@ export async function usePrismaAuthState() {
   // Load existing creds or create fresh ones
   const creds = (await readData('creds')) ?? initAuthCreds();
 
+  if (creds.me) {
+    creds.registered = true;
+  }
+
   const keys: SignalKeyStore = {
     get: async <T extends keyof SignalDataTypeMap>(type: T, ids: string[]) => {
       const data: Record<string, SignalDataTypeMap[T]> = {};
@@ -68,6 +72,9 @@ export async function usePrismaAuthState() {
       keys,
     },
     saveCreds: async () => {
+      if (creds.me) {
+        creds.registered = true;
+      }
       await writeData('creds', creds);
     },
   };
