@@ -49,15 +49,20 @@ const broadcastSchema = z.object({
 whatsappRouter.get(
   '/status',
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
-  async (req: Request, res: Response): Promise<void> => {
-    const status = await syncWhatsAppStatus();
-    res.json({
-      success: true,
-      data: {
-        ...status,
-        connecting: getWhatsAppConnecting(),
-      },
-    });
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const status = await syncWhatsAppStatus();
+      res.json({
+        success: true,
+        data: {
+          ...status,
+          connecting: getWhatsAppConnecting(),
+        },
+      });
+    } catch (error) {
+      logger.error('Error fetching WhatsApp status:', error);
+      next(error);
+    }
   },
 );
 
@@ -70,8 +75,8 @@ whatsappRouter.get(
   '/events',
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
   (req: Request, res: Response): void => {
-    // Manual CORS for SSE — middleware doesn't cover streaming responses
-    res.setHeader('Access-Control-Allow-Origin', 'https://transitos.vercel.app');
+    const origin = req.headers.origin || 'https://transitos.vercel.app';
+    res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
 
