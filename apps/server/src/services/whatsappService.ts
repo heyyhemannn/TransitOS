@@ -126,7 +126,7 @@ class WhatsAppService {
         printQRInTerminal: false,
         msgRetryCounterCache: new Map() as any,
         generateHighQualityLinkPreview: false,
-        browser: baileys.Browsers.macOS('Desktop'),
+        browser: baileys.Browsers.ubuntu('Chrome'),
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
@@ -341,24 +341,26 @@ class WhatsAppService {
     return `91${last10}@s.whatsapp.net`;
   }
 
-  private async getVerifiedJid(phone: string): Promise<string> {
+  private async getVerifiedJid(phone: string): Promise<{ jid: string; exists: boolean }> {
     const digits = phone.replace(/\D/g, '');
     const last10 = digits.slice(-10);
-    const jid = `91${last10}@s.whatsapp.net`;
-    if (!this.sock) return jid;
+    const defaultJid = `91${last10}@s.whatsapp.net`;
+    if (!this.sock) return { jid: defaultJid, exists: true };
     try {
       const results = await this.sock.onWhatsApp(`91${last10}`);
       if (results && results.length > 0) {
         const match = results.find((r) => r.exists);
         if (match && match.jid) {
           logger.info(`Resolved verified WhatsApp JID for ${phone}: ${match.jid}`);
-          return match.jid;
+          return { jid: match.jid, exists: true };
         }
+        logger.warn(`Phone number ${phone} (91${last10}) is not registered on WhatsApp.`);
+        return { jid: defaultJid, exists: false };
       }
     } catch (err) {
-      logger.warn(`onWhatsApp check error for ${phone}, using default JID ${jid}:`, err);
+      logger.warn(`onWhatsApp check error for ${phone}, fallback to default JID ${defaultJid}:`, err);
     }
-    return jid;
+    return { jid: defaultJid, exists: true };
   }
 
   private async enforceRateLimit() {
@@ -398,7 +400,15 @@ class WhatsAppService {
       return { success: false, error: errMsg };
     }
 
-    const jid = this.formatPhone(phone);
+    const { jid, exists } = await this.getVerifiedJid(phone);
+    if (!exists) {
+      const errMsg = `Phone number ${phone} is not registered on WhatsApp.`;
+      logger.warn(`Cannot send message. ${errMsg}`);
+      await prisma.whatsAppMessage.create({
+        data: { studentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
+      });
+      return { success: false, error: errMsg };
+    }
 
     try {
       await this.enforceRateLimit();
@@ -563,85 +573,167 @@ class WhatsAppService {
       month: this.formatMonth(payment.month, payment.year),
     });
 
-    // 1.5s delay between text confirmation and PDF bill document attachment for WhatsApp server ordering
+    logger.info(`[Confirmation] ${payment.student?.name}: text message sent. Sending bill in 1.5s…`);
+
+    // 1.5s gap between text confirmation and PDF bill so WhatsApp delivers them in order
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    // 2. Send the generated PDF receipt document as a WhatsApp message
+    // 2. Send PDF bill — MANDATORY. Retries once automatically on failure.
+    //    sendReceiptBill() is fully awaited, so the caller's sequential for-loop
+    //    will not move to the next student until both message + bill are done.
+    await this.sendReceiptBill(payment, receiptId, paymentId);
+  }
+
+  /**
+   * Sends the PDF receipt/bill to the parent via WhatsApp.
+   *
+   * Design goals:
+   *  - MANDATORY: retries once (4 s gap) if the PDF cannot be fetched or sent.
+   *  - RATE-LIMITED: calls enforceRateLimit() before every send, same as text
+   *    messages, so siblings sharing a phone number never flood the connection.
+   *  - SEQUENTIAL: fully awaited by sendConfirmation(), which itself is fully
+   *    awaited by the for-loop in payments.ts — so Student 1 text+bill finishes
+   *    completely before Student 2 text+bill starts.
+   */
+  private async sendReceiptBill(
+    payment: NonNullable<Awaited<ReturnType<typeof prisma.payment.findUnique>>> & { student: any },
+    receiptId: string,
+    paymentId: string,
+    retryCount = 0,
+  ): Promise<void> {
+    const studentName = payment.student?.name ?? paymentId;
+
     const isConnected = await this.ensureConnected();
-    if (payment.receiptUrl && isConnected && this.sock) {
+    if (!isConnected || !this.sock) {
+      logger.error(`[Bill] Cannot send bill for ${studentName} — WhatsApp not connected.`);
+      return;
+    }
+
+    const { jid, exists } = await this.getVerifiedJid(payment.student.whatsappNumber);
+    if (!exists) {
+      logger.error(`[Bill] Cannot send bill for ${studentName} — phone number not registered on WhatsApp.`);
+      await prisma.whatsAppMessage.create({
+        data: {
+          studentId: payment.student.id,
+          phone: payment.student.whatsappNumber,
+          type: MessageType.CONFIRMATION,
+          body: `[PDF Bill Receipt: ${receiptId}.pdf]`,
+          status: MessageStatus.FAILED,
+          errorMessage: 'Phone number not registered on WhatsApp',
+          createdAt: new Date(),
+        },
+      });
+      return;
+    }
+    const storagePath = `receipts/${payment.student.id}/${receiptId}.pdf`;
+    let pdfBuffer: Buffer | null = null;
+
+    // ── Source 1: LOCAL: prefix path ───────────────────────────────────────────
+    if (payment.receiptUrl?.startsWith('LOCAL:')) {
       try {
-        const jid = this.formatPhone(payment.student.whatsappNumber);
-        
-        let pdfBuffer: Buffer | null = null;
-        const storagePath = `receipts/${payment.student.id}/${receiptId}.pdf`;
-        
-        // Check if stored locally or fallback to local disk
-        if (payment.receiptUrl.startsWith('LOCAL:')) {
-          try {
-            const pathInReceipts = payment.receiptUrl.replace('LOCAL:', '');
-            const localFilePath = path.resolve(process.cwd(), 'storage', pathInReceipts);
-            if (fs.existsSync(localFilePath)) {
-              pdfBuffer = fs.readFileSync(localFilePath);
-              logger.info(`Successfully read receipt PDF from local storage fallback (${pdfBuffer.length} bytes).`);
-            }
-          } catch (localErr) {
-            logger.error('Failed to read local PDF file in sendConfirmation:', localErr);
-          }
+        const pathInReceipts = payment.receiptUrl.replace('LOCAL:', '');
+        const localFilePath = path.resolve(process.cwd(), 'storage', pathInReceipts);
+        if (fs.existsSync(localFilePath)) {
+          pdfBuffer = fs.readFileSync(localFilePath);
+          logger.info(`[Bill] ${studentName}: read PDF from local storage (${pdfBuffer.length} bytes).`);
         }
-
-        if (!pdfBuffer) {
-          try {
-            const { supabase } = await import('../lib/supabase');
-            logger.info(`Attempting to download receipt PDF from Supabase storage: ${storagePath}`);
-            const { data, error } = await supabase.storage
-              .from('receipts')
-              .download(storagePath);
-              
-            if (error) {
-              logger.error(`Supabase storage download error for path ${storagePath}:`, error);
-            } else if (data) {
-              const arrayBuffer = await data.arrayBuffer();
-              pdfBuffer = Buffer.from(arrayBuffer);
-              logger.info(`Successfully downloaded receipt PDF from Supabase storage (${pdfBuffer.length} bytes).`);
-            }
-          } catch (storageErr) {
-            logger.error(`Failed to download receipt from storage via Supabase client:`, storageErr);
-          }
-        }
-
-        // Fallback: Check local disk by path pattern if cloud options failed
-        if (!pdfBuffer) {
-          try {
-            const localFilePath = path.resolve(
-              process.cwd(),
-              'storage',
-              'receipts',
-              payment.student.id,
-              `${receiptId}.pdf`
-            );
-            if (fs.existsSync(localFilePath)) {
-              pdfBuffer = fs.readFileSync(localFilePath);
-              logger.info(`Successfully read fallback receipt PDF from local path (${pdfBuffer.length} bytes).`);
-            }
-          } catch (diskErr) {
-            logger.error('Failed to check fallback local disk path:', diskErr);
-          }
-        }
-
-        if (pdfBuffer) {
-          await this.sock.sendMessage(jid, {
-            document: pdfBuffer,
-            mimetype: 'application/pdf',
-            fileName: `${receiptId}.pdf`,
-            caption: `🧾 Bill Receipt for ${payment.student.name} - ${this.formatMonth(payment.month, payment.year)}`,
-          });
-          logger.info(`Successfully sent receipt PDF document to parent WhatsApp (${payment.student.whatsappNumber}): ${receiptId}.pdf`);
-        } else {
-          logger.warn(`Could not retrieve PDF buffer for payment ${paymentId}. Sent text confirmation only.`);
-        }
-      } catch (pdfErr) {
-        logger.error(`Failed to send receipt PDF document via WhatsApp for payment ${paymentId}:`, pdfErr);
+      } catch (localErr) {
+        logger.warn(`[Bill] ${studentName}: local storage read failed:`, localErr);
       }
+    }
+
+    // ── Source 2: Supabase cloud storage ───────────────────────────────────────
+    if (!pdfBuffer) {
+      try {
+        const { supabase } = await import('../lib/supabase');
+        logger.info(`[Bill] ${studentName}: downloading PDF from Supabase (${storagePath})…`);
+        const { data, error } = await supabase.storage.from('receipts').download(storagePath);
+        if (error) {
+          logger.warn(`[Bill] ${studentName}: Supabase download error:`, error);
+        } else if (data) {
+          pdfBuffer = Buffer.from(await data.arrayBuffer());
+          logger.info(`[Bill] ${studentName}: downloaded PDF from Supabase (${pdfBuffer.length} bytes).`);
+        }
+      } catch (storageErr) {
+        logger.warn(`[Bill] ${studentName}: Supabase storage exception:`, storageErr);
+      }
+    }
+
+    // ── Source 3: Conventional local disk fallback ─────────────────────────────
+    if (!pdfBuffer) {
+      try {
+        const localFilePath = path.resolve(
+          process.cwd(), 'storage', 'receipts', payment.student.id, `${receiptId}.pdf`,
+        );
+        if (fs.existsSync(localFilePath)) {
+          pdfBuffer = fs.readFileSync(localFilePath);
+          logger.info(`[Bill] ${studentName}: read PDF from fallback disk path (${pdfBuffer.length} bytes).`);
+        }
+      } catch (diskErr) {
+        logger.warn(`[Bill] ${studentName}: disk fallback read failed:`, diskErr);
+      }
+    }
+
+    // ── Send (or retry if buffer unavailable) ─────────────────────────────────
+    if (!pdfBuffer) {
+      if (retryCount < 1) {
+        logger.warn(`[Bill] ${studentName}: PDF not available on attempt ${retryCount + 1}. Retrying in 4s…`);
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        return this.sendReceiptBill(payment, receiptId, paymentId, retryCount + 1);
+      }
+      logger.error(`[Bill] ❌ ${studentName}: PDF unavailable after retry — bill NOT sent.`);
+      return;
+    }
+
+    try {
+      await this.enforceRateLimit(); // respect 3-second inter-message spacing
+
+      const now = new Date();
+      const sentResult = await this.sock.sendMessage(jid, {
+        document: pdfBuffer,
+        mimetype: 'application/pdf',
+        fileName: `${receiptId}.pdf`,
+        caption: `🧾 Bill Receipt for ${payment.student.name} — ${this.formatMonth(payment.month, payment.year)}`,
+      });
+
+      const wamId = sentResult?.key?.id;
+      const metaMessage = wamId ? `[WAM_ID: ${wamId}]` : null;
+
+      await prisma.whatsAppMessage.create({
+        data: {
+          studentId: payment.student.id,
+          phone: payment.student.whatsappNumber,
+          type: MessageType.CONFIRMATION,
+          body: `[PDF Bill Receipt: ${receiptId}.pdf]`,
+          status: MessageStatus.SENT,
+          sentAt: now,
+          errorMessage: metaMessage,
+          createdAt: now,
+        },
+      });
+
+      logger.info(`[Bill] ✅ ${studentName}: receipt PDF sent successfully (${receiptId}.pdf).`);
+    } catch (sendErr: any) {
+      if (retryCount < 1) {
+        logger.warn(`[Bill] ${studentName}: PDF send failed on attempt ${retryCount + 1}: ${sendErr?.message}. Retrying in 4s…`);
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        return this.sendReceiptBill(payment, receiptId, paymentId, retryCount + 1);
+      }
+
+      const errMsg = sendErr?.message || 'Failed to send PDF receipt bill via WhatsApp';
+      logger.error(`[Bill] ❌ ${studentName}: PDF send failed after retry — bill NOT delivered.`, sendErr);
+
+      await prisma.whatsAppMessage.create({
+        data: {
+          studentId: payment.student.id,
+          phone: payment.student.whatsappNumber,
+          type: MessageType.CONFIRMATION,
+          body: `[PDF Bill Receipt: ${receiptId}.pdf]`,
+          status: MessageStatus.FAILED,
+          errorMessage: errMsg,
+          createdAt: new Date(),
+        },
+      });
     }
   }
 

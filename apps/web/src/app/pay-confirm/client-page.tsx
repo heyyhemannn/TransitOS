@@ -1,0 +1,367 @@
+'use client';
+
+import * as React from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { 
+  CheckCircle2, 
+  Upload, 
+  FileImage, 
+  ChevronRight, 
+  AlertCircle,
+  Receipt,
+  Smartphone,
+  Calendar,
+  CreditCard
+} from 'lucide-react';
+import { api } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { toast } from '@/hooks/use-toast';
+
+// Helper to format current local time as YYYY-MM-DDTHH:mm for datetime-local input
+const getNowDateTimeLocal = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+const PAYMENT_APP_OPTIONS = [
+  { id: 'PhonePe', label: 'PhonePe' },
+  { id: 'Google Pay', label: 'Google Pay (GPay)' },
+  { id: 'Paytm', label: 'Paytm' },
+  { id: 'Navi UPI', label: 'Navi UPI' },
+  { id: 'Super.money', label: 'Super.money' },
+  { id: 'Amazon Pay', label: 'Amazon Pay' },
+  { id: 'WhatsApp Pay', label: 'WhatsApp Pay' },
+  { id: 'Other UPI / Bank', label: 'Other UPI App / Bank' },
+] as const;
+
+const parentConfirmSchema = z.object({
+  phone: z
+    .string()
+    .transform((val) => val.replace(/\D/g, ''))
+    .pipe(z.string().regex(/^\d{10}$/, 'Must be a valid 10-digit mobile number')),
+  paymentApp: z.string().min(1, 'Please select the payment app used'),
+  transactionId: z
+    .string()
+    .transform((val) => val.replace(/\s+/g, ''))
+    .pipe(z.string().regex(/^\d{12}$/, 'Must be a valid 12-digit UPI transaction reference')),
+  paymentDateTime: z.string().optional(),
+});
+
+type ParentConfirmValues = z.infer<typeof parentConfirmSchema>;
+
+export default function ClientParentConfirmForm() {
+  const searchParams = useSearchParams();
+  const initialPhone = searchParams ? searchParams.get('phone') || '' : '';
+
+  const [screenshotBase64, setScreenshotBase64] = React.useState<string | null>(null);
+  const [screenshotName, setScreenshotName] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [successInfo, setSuccessInfo] = React.useState<{ studentName: string; amount: number; status: string } | null>(null);
+  const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
+
+  const form = useForm<ParentConfirmValues>({
+    resolver: zodResolver(parentConfirmSchema),
+    defaultValues: {
+      phone: initialPhone,
+      paymentApp: 'PhonePe',
+      transactionId: '',
+      paymentDateTime: getNowDateTimeLocal(),
+    },
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      setScreenshotName(file.name);
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        setScreenshotBase64(reader.result as string);
+      };
+      reader.onerror = () => {
+        toast({
+          title: 'Upload Failed',
+          description: 'Failed to parse image file. Try another file.',
+          variant: 'destructive',
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const onSubmit = async (values: ParentConfirmValues) => {
+    setIsSubmitting(true);
+    setErrorMsg(null);
+    try {
+      const res = await api.post('/payments/parent-confirm', {
+        ...values,
+        screenshotBase64,
+      });
+      setSuccessInfo({
+        studentName: res.data.data.studentName,
+        amount: res.data.data.amount,
+        status: res.data.data.status,
+      });
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error || 'An error occurred during submission. Verify your parameters.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const isPaid = successInfo?.status === 'PAID';
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Background blobs for premium glassmorphic depth */}
+      <div className="absolute top-[-10%] left-[-10%] h-[40%] w-[40%] rounded-full bg-blue-500/10 blur-[120px]" />
+      <div className={`absolute bottom-[-10%] right-[-10%] h-[40%] w-[40%] rounded-full blur-[120px] transition-colors duration-500 ${
+        successInfo ? (isPaid ? 'bg-emerald-500/10' : 'bg-amber-500/10') : 'bg-emerald-500/10'
+      }`} />
+
+      {successInfo ? (
+        <Card className={`w-full max-w-md bg-slate-900/60 backdrop-blur-xl shadow-2xl text-center p-6 space-y-6 transition-all duration-500 border ${
+          isPaid ? 'border-emerald-500/20' : 'border-amber-500/20'
+        }`}>
+          <div className="flex justify-center">
+            <div className={`h-16 w-16 rounded-full flex items-center justify-center shadow-lg transition-all duration-500 animate-bounce ${
+              isPaid 
+                ? 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10' 
+                : 'bg-amber-500/15 text-amber-400 shadow-amber-500/10'
+            }`}>
+              <CheckCircle2 className="h-10 w-10" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <CardTitle className="text-xl font-bold text-slate-100">
+              {isPaid ? 'Payment Confirmed!' : 'Submission Received!'}
+            </CardTitle>
+            <CardDescription className="text-slate-400">
+              {isPaid 
+                ? 'Your payment has been successfully recorded and processed.' 
+                : 'Your confirmation details have been submitted for review.'}
+            </CardDescription>
+          </div>
+
+          <div className="border border-slate-800 rounded-xl p-4 bg-slate-950/40 text-left space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Student Name:</span>
+              <span className="font-semibold text-slate-200">{successInfo.studentName}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Amount Billed:</span>
+              <span className="font-semibold text-emerald-400">₹{(successInfo.amount / 100).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Status:</span>
+              {isPaid ? (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  SUCCESS / PAID
+                </span>
+              ) : (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  PENDING REVIEW
+                </span>
+              )}
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-500 leading-relaxed">
+            {isPaid ? (
+              <>
+                Your payment bill/invoice has been sent to your WhatsApp. Thank you for your payment!
+              </>
+            ) : (
+              <>
+                Since no screenshot was uploaded, the administrator of <strong>Hemanth&apos;s Transport Services</strong> will verify this reference and release your payment bill/invoice on WhatsApp once verified.
+              </>
+            )}
+          </p>
+        </Card>
+      ) : (
+        <Card className="w-full max-w-md border-slate-800 bg-slate-900/40 backdrop-blur-xl shadow-2xl my-6">
+          <CardHeader className="text-center pb-4">
+            <div className="flex justify-center mb-3">
+              <div className="h-16 w-16 bg-slate-900/90 border border-slate-800/80 rounded-2xl flex items-center justify-center p-2.5 shadow-xl shadow-blue-500/10 backdrop-blur-md">
+                <img
+                  src="/logo.png"
+                  alt="Hemanth's Transport Services"
+                  className="h-full w-full object-contain"
+                />
+              </div>
+            </div>
+            <CardTitle className="text-xl font-black tracking-tight text-slate-100">
+              Hemanth&apos;s Transport Services
+            </CardTitle>
+            <CardDescription className="text-slate-400 text-xs">
+              Submit your UPI transaction details to verify your transport fee payment
+            </CardDescription>
+          </CardHeader>
+
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <CardContent className="space-y-4">
+              {errorMsg && (
+                <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg p-3">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {/* Mobile Number */}
+              <div className="space-y-1.5">
+                <Label htmlFor="phone" className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                  <Smartphone className="h-3.5 w-3.5 text-blue-400" />
+                  Registered Parent Mobile Number
+                </Label>
+                <Input
+                  id="phone"
+                  placeholder="E.g. 9848022338"
+                  className="bg-slate-950/60 border-slate-800 text-slate-200 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  {...form.register('phone')}
+                />
+                {form.formState.errors.phone ? (
+                  <p className="text-[10px] text-red-400 font-semibold">{form.formState.errors.phone.message}</p>
+                ) : (
+                  <p className="text-[10px] text-slate-500">
+                    Use the mobile number registered for transport communications.
+                  </p>
+                )}
+              </div>
+
+              {/* Payment App / Method Selection */}
+              <div className="space-y-1.5">
+                <Label htmlFor="paymentApp" className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                  <CreditCard className="h-3.5 w-3.5 text-purple-400" />
+                  Payment App Used
+                </Label>
+                <Controller
+                  name="paymentApp"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <SelectTrigger className="bg-slate-950/60 border-slate-800 text-slate-200 text-sm focus:ring-blue-500 focus:border-blue-500">
+                        <SelectValue placeholder="Select Payment App..." />
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-900 border-slate-800 text-slate-200">
+                        {PAYMENT_APP_OPTIONS.map((appOption) => (
+                          <SelectItem key={appOption.id} value={appOption.id} className="focus:bg-slate-800 focus:text-white cursor-pointer">
+                            <span className="font-semibold">{appOption.label}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {form.formState.errors.paymentApp && (
+                  <p className="text-[10px] text-red-400 font-semibold">{form.formState.errors.paymentApp.message}</p>
+                )}
+              </div>
+
+              {/* Transaction ID */}
+              <div className="space-y-1.5">
+                <Label htmlFor="transactionId" className="text-xs font-bold text-slate-400">
+                  UPI Transaction ID (12-Digit Reference)
+                </Label>
+                <Input
+                  id="transactionId"
+                  placeholder="E.g. 618290382901"
+                  maxLength={12}
+                  className="bg-slate-950/60 border-slate-800 text-slate-200 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                  {...form.register('transactionId')}
+                />
+                {form.formState.errors.transactionId ? (
+                  <p className="text-[10px] text-red-400 font-semibold">{form.formState.errors.transactionId.message}</p>
+                ) : (
+                  <p className="text-[10px] text-slate-500">
+                    Locate the 12-digit transaction Ref No. inside PhonePe, GPay, Paytm, or your UPI app.
+                  </p>
+                )}
+              </div>
+
+              {/* Payment Date & Time */}
+              <div className="space-y-1.5">
+                <Label htmlFor="paymentDateTime" className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-emerald-400" />
+                  Date & Time of Payment
+                </Label>
+                <Input
+                  id="paymentDateTime"
+                  type="datetime-local"
+                  className="bg-slate-950/60 border-slate-800 text-slate-200 focus:ring-blue-500 focus:border-blue-500 text-sm scheme-dark"
+                  {...form.register('paymentDateTime')}
+                />
+                <p className="text-[10px] text-slate-500">
+                  Select the approximate date and time when the payment was completed.
+                </p>
+              </div>
+
+              {/* Screenshot File Upload */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <Label className="text-xs font-bold text-slate-400">
+                    Upload Payment Screenshot
+                  </Label>
+                  <span className="text-[9px] font-bold text-slate-400 bg-slate-800/40 border border-slate-800/80 px-2 py-0.5 rounded-full">
+                    OPTIONAL
+                  </span>
+                </div>
+                <div className="border border-dashed border-slate-800 hover:border-slate-700 bg-slate-950/40 rounded-xl p-4 flex flex-col items-center justify-center relative cursor-pointer group transition duration-300">
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="absolute inset-0 opacity-0 cursor-pointer h-full w-full"
+                  />
+                  <Upload className="h-6 w-6 text-slate-500 group-hover:text-slate-400 mb-1" />
+                  <span className="text-xs font-semibold text-slate-300">
+                    {screenshotName ? screenshotName : 'Click to select screenshot image'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 mt-0.5">JPEG, PNG format supported (Optional)</span>
+                </div>
+
+                {screenshotBase64 && (
+                  <div className="mt-2 border border-slate-800 rounded-lg p-2 bg-slate-950/60 flex items-center gap-2">
+                    <FileImage className="h-4 w-4 text-emerald-400 shrink-0" />
+                    <span className="text-xs text-slate-400 truncate max-w-[200px]">{screenshotName}</span>
+                    <span className="text-[9px] font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full ml-auto">
+                      PREVIEW READY
+                    </span>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+
+            <CardFooter className="bg-slate-950/30 border-t border-slate-800/80 py-4">
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold gap-2 shadow-lg shadow-blue-500/10"
+              >
+                {isSubmitting ? 'Submitting Details...' : 'Submit Confirmation'}
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+      )}
+    </div>
+  );
+}

@@ -21,8 +21,4 @@ if (process.env.NODE_ENV !== 'production') {
   global.__prisma = prisma;
 }
 
-// Graceful disconnect on exit
-process.on('beforeExit', async () => {
-  await prisma.$disconnect();
-  logger.info('Prisma client disconnected');
-});
+

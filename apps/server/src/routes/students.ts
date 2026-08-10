@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
-import { UserRole, StudentStatus, Payment, FeeSchedule } from '@prisma/client';
+import { UserRole, StudentStatus, Payment, FeeSchedule, PaymentStatus } from '@prisma/client';
 import { createAuditLog } from '../lib/audit';
 
 export const studentsRouter = Router();
@@ -101,16 +101,22 @@ studentsRouter.get(
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit as string) || 20));
+      const pageNum = parseInt(req.query.page as string);
+      const page = !isNaN(pageNum) && pageNum > 0 ? pageNum : 1;
+
+      const limitNum = parseInt(req.query.limit as string);
+      const limit = !isNaN(limitNum) && limitNum > 0 ? Math.min(1000, limitNum) : 20;
+
       const search = ((req.query.search as string) || '').trim();
       const school = (req.query.school as string) || '';
       const routeId = (req.query.routeId as string) || '';
       const statusInput = (req.query.status as string) || 'ACTIVE';
       const status = statusInput === 'INACTIVE' ? StudentStatus.INACTIVE : StudentStatus.ACTIVE;
 
-      const unpaidMonth = req.query.unpaidMonth ? parseInt(req.query.unpaidMonth as string) : undefined;
-      const unpaidYear = req.query.unpaidYear ? parseInt(req.query.unpaidYear as string) : undefined;
+      const unpaidMonthRaw = req.query.unpaidMonth ? parseInt(req.query.unpaidMonth as string) : undefined;
+      const unpaidYearRaw = req.query.unpaidYear ? parseInt(req.query.unpaidYear as string) : undefined;
+      const unpaidMonth = unpaidMonthRaw !== undefined && !isNaN(unpaidMonthRaw) ? unpaidMonthRaw : undefined;
+      const unpaidYear = unpaidYearRaw !== undefined && !isNaN(unpaidYearRaw) ? unpaidYearRaw : undefined;
 
       const skip = (page - 1) * limit;
 
@@ -132,7 +138,7 @@ studentsRouter.get(
                 some: {
                   month: unpaidMonth,
                   year: unpaidYear,
-                  status: 'PAID',
+                  status: PaymentStatus.PAID,
                 },
               },
             },

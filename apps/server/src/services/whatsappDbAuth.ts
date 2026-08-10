@@ -60,11 +60,14 @@ async function backupToDb(): Promise<void> {
   try {
     if (!fs.existsSync(SESSION_DIR)) return;
 
-    const files = fs.readdirSync(SESSION_DIR).filter(f => f.endsWith('.json'));
-    if (files.length === 0) return;
+    const diskFiles = fs.readdirSync(SESSION_DIR).filter(f => f.endsWith('.json'));
+    if (diskFiles.length === 0) return;
 
+    const diskFileSet = new Set(diskFiles);
+
+    // 1. Upsert files currently on disk
     await Promise.all(
-      files.map(async (file) => {
+      diskFiles.map(async (file) => {
         const filePath = path.join(SESSION_DIR, file);
         const content = fs.readFileSync(filePath, 'utf-8');
         await prisma.whatsAppSession.upsert({
@@ -74,10 +77,37 @@ async function backupToDb(): Promise<void> {
         });
       })
     );
-    logger.info(`[WA Auth] Backed up ${files.length} session file(s) to Postgres.`);
+
+    // 2. Remove consumed/deleted keys from Postgres that no longer exist on disk
+    const dbRows = await prisma.whatsAppSession.findMany({ select: { key: true } });
+    const staleKeys = dbRows.map(r => r.key).filter(k => !diskFileSet.has(k));
+    if (staleKeys.length > 0) {
+      await prisma.whatsAppSession.deleteMany({
+        where: { key: { in: staleKeys } },
+      });
+      logger.info(`[WA Auth] Removed ${staleKeys.length} consumed key(s) from Postgres.`);
+    }
+
+    logger.info(`[WA Auth] Backed up ${diskFiles.length} session file(s) to Postgres.`);
   } catch (err) {
     logger.error('[WA Auth] Failed to backup session to Postgres:', err);
   }
+}
+
+/**
+ * Debounced backup: during message sending Baileys calls keys.set() many times
+ * in rapid succession (one per Signal pre-key / session key). Without debouncing
+ * this floods Postgres with dozens of concurrent upsert batches per message,
+ * causing timeout / P2002 errors that surface as 500s to the frontend.
+ * We coalesce all writes within a 3-second window into a single backup call.
+ */
+let backupDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleBackup(): void {
+  if (backupDebounceTimer) clearTimeout(backupDebounceTimer);
+  backupDebounceTimer = setTimeout(() => {
+    backupDebounceTimer = null;
+    backupToDb().catch(err => logger.error('[WA Auth] Debounced backup failed:', err));
+  }, 3000); // wait 3s for burst to settle before writing
 }
 
 // ── Main exported function ────────────────────────────────────────────────────
@@ -105,13 +135,15 @@ export async function usePrismaAuthState() {
     await backupToDb();               // backup all session files to Postgres
   };
 
-  // Step 4: Wrap keys.set to also backup to DB after signal key changes
+  // Step 4: Wrap keys.set to schedule a debounced DB backup after signal key changes.
+  // Baileys calls keys.set() many times per message (pre-keys, sessions, sender-keys).
+  // We write to disk immediately (Baileys native) but debounce the DB backup.
   const originalKeysSet = multiFileState.state.keys.set.bind(multiFileState.state.keys);
   const wrappedKeys = {
     ...multiFileState.state.keys,
     set: async (data: Parameters<typeof originalKeysSet>[0]) => {
-      await originalKeysSet(data); // write key files to disk
-      await backupToDb();          // backup all session files to Postgres
+      await originalKeysSet(data); // write key files to disk immediately
+      scheduleBackup();            // debounced: backs up to Postgres after 3s burst settles
     },
   };
 

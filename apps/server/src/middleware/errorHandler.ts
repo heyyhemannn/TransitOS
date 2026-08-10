@@ -3,12 +3,39 @@ import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import { logger } from '../lib/logger';
 
+/**
+ * Ensures CORS headers are present on error responses.
+ * When a route throws and Express jumps straight to the error handler,
+ * the cors() middleware has already run — but some edge cases (e.g. the
+ * error handler itself responding before cors sets headers on that specific
+ * response object) can strip them. Explicitly setting the header here means
+ * the browser always gets Access-Control-Allow-Origin even on 500s, so the
+ * real error is visible instead of a misleading CORS block.
+ */
+function ensureCorsHeaders(req: Request, res: Response): void {
+  const origin = req.headers.origin;
+  const allowed = [
+    'https://transitos.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()) : []),
+  ];
+  if (origin && allowed.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  }
+}
+
 export function errorHandler(
   err: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
 ): void {
+  // Always ensure CORS headers on error responses so browser shows real error
+  ensureCorsHeaders(req, res);
+
   // Zod validation errors
   if (err instanceof ZodError) {
     res.status(400).json({

@@ -65,14 +65,25 @@ paymentsRouter.get(
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+      const pageNum = parseInt(req.query.page as string);
+      const page = !isNaN(pageNum) && pageNum > 0 ? pageNum : 1;
+
+      const limitNum = parseInt(req.query.limit as string);
+      const limit = !isNaN(limitNum) && limitNum > 0 ? Math.min(100, limitNum) : 20;
+
       const skip = (page - 1) * limit;
 
-      const month = req.query.month ? parseInt(req.query.month as string) : undefined;
-      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+      const monthNum = req.query.month ? parseInt(req.query.month as string) : undefined;
+      const month = monthNum !== undefined && !isNaN(monthNum) ? monthNum : undefined;
+
+      const yearNum = req.query.year ? parseInt(req.query.year as string) : undefined;
+      const year = yearNum !== undefined && !isNaN(yearNum) ? yearNum : undefined;
+
       const statusInput = req.query.status as string;
-      const status = statusInput ? (statusInput as PaymentStatus) : undefined;
+      const status = statusInput && Object.values(PaymentStatus).includes(statusInput as PaymentStatus)
+        ? (statusInput as PaymentStatus)
+        : undefined;
+
       const studentId = req.query.studentId as string;
       const school = req.query.school as string;
       const routeId = req.query.routeId as string;
@@ -83,7 +94,7 @@ paymentsRouter.get(
 
       if (month !== undefined) where.month = month;
       if (year !== undefined) where.year = year;
-      if (status) where.status = status;
+      if (status !== undefined) where.status = status;
       if (studentId) where.studentId = studentId;
 
       if (school || routeId) {
@@ -862,10 +873,12 @@ publicPaymentsRouter.post(
   '/parent-confirm',
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { phone, transactionId, screenshotBase64 } = z.object({
+      const { phone, transactionId, screenshotBase64, paymentApp, paymentDateTime } = z.object({
         phone: z.string().regex(/^\d{10}$/, 'Must be a valid 10-digit mobile number'),
         transactionId: z.string().regex(/^\d{12}$/, 'Must be a valid 12-digit UPI transaction reference'),
         screenshotBase64: z.string().optional().nullable(),
+        paymentApp: z.string().optional().nullable(),
+        paymentDateTime: z.string().optional().nullable(),
       }).parse(req.body);
 
       const formattedPhone = phone.trim();
@@ -964,14 +977,19 @@ publicPaymentsRouter.post(
         }
       }
 
+      const appInfo = paymentApp ? `App: ${paymentApp}` : 'App: UPI';
+      const timeInfo = paymentDateTime ? `PaidAt: ${paymentDateTime}` : '';
       const remarks = screenshotStoragePath
-        ? `Parent screenshot saved. Storage: ${screenshotStoragePath}. Phone: ${phone}`
-        : `No screenshot provided. Phone: ${phone}`;
+        ? `Parent screenshot saved. Storage: ${screenshotStoragePath}. Phone: ${phone}. ${appInfo}. ${timeInfo}`.trim()
+        : `No screenshot provided. Phone: ${phone}. ${appInfo}. ${timeInfo}`.trim();
 
       const actualNow = new Date();
+      const userDate = paymentDateTime ? new Date(paymentDateTime) : null;
+      const validUserDate = userDate && !isNaN(userDate.getTime()) ? userDate : actualNow;
+
       const isAutoConfirm = !isCollective && screenshotStoragePath !== null;
       const paymentStatus = isAutoConfirm ? PaymentStatus.PAID : PaymentStatus.PENDING;
-      const paidAtValue = isAutoConfirm ? actualNow : null;
+      const paidAtValue = isAutoConfirm ? validUserDate : null;
 
       // Create payment and update fee schedules
       const createdPayments = await prisma.$transaction(
