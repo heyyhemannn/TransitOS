@@ -426,9 +426,7 @@ export default function WhatsAppPage() {
                   </div>
                 )}
                 <div className="text-xs text-muted-foreground max-w-xs leading-relaxed">
-                  Open WhatsApp → <span className="font-semibold text-foreground">Linked Devices</span> → scan QR.
-                  <br />
-                  <span className="text-emerald-600 dark:text-emerald-400 mt-1 block font-medium">🔒 Permanent Session — Once paired, connection remains active until manually logged out.</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">🔒 Permanent Session — Once paired, connection remains active until manually logged out.</span>
                 </div>
               </div>
             )}
