@@ -14,13 +14,7 @@ import { logger } from '../lib/logger';
  */
 function ensureCorsHeaders(req: Request, res: Response): void {
   const origin = req.headers.origin;
-  const allowed = [
-    'https://transitos.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:3001',
-    ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()) : []),
-  ];
-  if (origin && allowed.includes(origin)) {
+  if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Vary', 'Origin');

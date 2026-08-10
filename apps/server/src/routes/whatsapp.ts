@@ -567,15 +567,17 @@ whatsappRouter.post(
       } else {
         typeToSend = reminderType as MessageType;
         if (reminderType === MessageType.REMINDER_3 || reminderType === MessageType.FINAL) {
-          await prisma.feeSchedule.updateMany({
-            where: {
-              month: currentMonth,
-              year: currentYear,
-              isPaid: false,
-              student: { ...schoolFilter, status: StudentStatus.ACTIVE },
-            },
-            data: { overdueAt: nowIST },
-          });
+          if (studentIds.length > 0) {
+            await prisma.feeSchedule.updateMany({
+              where: {
+                month: currentMonth,
+                year: currentYear,
+                isPaid: false,
+                studentId: { in: studentIds },
+              },
+              data: { overdueAt: nowIST },
+            });
+          }
         }
       }
 
