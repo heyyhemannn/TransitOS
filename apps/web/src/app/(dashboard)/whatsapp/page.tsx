@@ -185,25 +185,40 @@ export default function WhatsAppPage() {
   });
 
   // ─── Manual Trigger ───────────────────────────────────────────────────────────
-  const [triggerSchool, setTriggerSchool] = React.useState('');
+  const [triggerSchool, setTriggerSchool] = React.useState('ALL');
+  const [targetAudience, setTargetAudience] = React.useState<'ALL' | 'UNPAID' | 'PAID'>('ALL');
   const [triggerReminderType, setTriggerReminderType] = React.useState('REMINDER_1');
   const [customText, setCustomText] = React.useState('');
 
+  const { data: dynamicSchools } = useQuery({
+    queryKey: ['whatsapp-schools'],
+    queryFn: async () => {
+      const res = await api.get<{ data: string[] }>('/whatsapp/schools');
+      return res.data.data;
+    },
+  });
+
   const triggerMutation = useMutation({
     mutationFn: async () => {
-      const res = await api.post<{ data: { sentCount: number; failedCount: number } }>('/whatsapp/trigger-reminder', {
+      const res = await api.post<{ data: { message: string; scannedCount: number; queuedCount: number } }>('/whatsapp/trigger-reminder', {
         school: triggerSchool,
+        targetAudience,
         reminderType: triggerReminderType,
         customText: customText.trim() || undefined,
       });
       return res.data.data;
     },
     onSuccess: (data) => {
-      toast({ title: 'Trigger Complete', description: `Sent: ${data?.sentCount ?? 0}, Failed: ${data?.failedCount ?? 0}`, variant: 'success' as any });
+      toast({
+        title: 'Broadcast Started in Background',
+        description: data?.message || 'Manual trigger initiated in background.',
+        variant: 'success' as any,
+      });
       setCustomText('');
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-logs'] });
     },
     onError: (err: any) => {
-      toast({ title: 'Trigger Failed', description: err.response?.data?.error || 'Failed', variant: 'destructive' });
+      toast({ title: 'Trigger Failed', description: err.response?.data?.error || 'Failed to trigger broadcast', variant: 'destructive' });
     },
   });
 
@@ -534,77 +549,115 @@ export default function WhatsAppPage() {
         </Card>
       )}
 
-      {/* ── Section 3: Manual School Trigger ── */}
+      {/* ── Section 3: Manual School Trigger & Broadcast ── */}
       {canMutate && (
         <Card className="border-slate-200 dark:border-slate-800 bg-card shadow-md">
           <CardHeader>
             <CardTitle className="text-lg font-bold flex items-center gap-2">
               <Wifi className="h-5 w-5 text-indigo-500" />
-              Manual School Trigger
+              Manual School Trigger & Broadcast
             </CardTitle>
-            <CardDescription>Manually fire a reminder batch for a specific school now</CardDescription>
+            <CardDescription>
+              Select a school (e.g. Unicent) and send custom announcements or standard fee reminders to parents
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {!isConnected && (
               <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                WhatsApp must be connected.
+                WhatsApp must be connected to send manual triggers.
               </div>
             )}
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
+              {/* Select School */}
               <div className="space-y-2">
-                <Label className="text-xs font-bold text-muted-foreground uppercase">School</Label>
-                <Select onValueChange={setTriggerSchool}>
+                <Label className="text-xs font-bold text-muted-foreground uppercase">Target School</Label>
+                <Select defaultValue="ALL" value={triggerSchool} onValueChange={setTriggerSchool}>
                   <SelectTrigger className="min-h-[48px] text-sm">
                     <SelectValue placeholder="Select school…" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="DPS Phase 2">DPS Phase 2</SelectItem>
-                    <SelectItem value="Unicent">Unicent</SelectItem>
-                    <SelectItem value="DPS Brindavanam">DPS Brindavanam</SelectItem>
+                    <SelectItem value="ALL">🏫 ALL - All Schools</SelectItem>
+                    {dynamicSchools?.map((schoolName) => (
+                      <SelectItem key={schoolName} value={schoolName}>
+                        {schoolName}
+                      </SelectItem>
+                    ))}
+                    {!dynamicSchools?.includes('Unicent') && <SelectItem value="Unicent">Unicent</SelectItem>}
+                    {!dynamicSchools?.includes('DPS Phase 2') && <SelectItem value="DPS Phase 2">DPS Phase 2</SelectItem>}
+                    {!dynamicSchools?.includes('DPS Brindavanam') && <SelectItem value="DPS Brindavanam">DPS Brindavanam</SelectItem>}
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Target Audience */}
               <div className="space-y-2">
-                <Label className="text-xs font-bold text-muted-foreground uppercase">Reminder Type</Label>
-                <Select defaultValue="REMINDER_1" onValueChange={setTriggerReminderType}>
+                <Label className="text-xs font-bold text-muted-foreground uppercase">Target Audience</Label>
+                <Select value={targetAudience} onValueChange={(val: any) => setTargetAudience(val)}>
                   <SelectTrigger className="min-h-[48px] text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="REMINDER_1">Reminder 1 (Friendly)</SelectItem>
-                    <SelectItem value="REMINDER_2">Reminder 2 (Urgent)</SelectItem>
-                    <SelectItem value="FINAL">Final Notice</SelectItem>
+                    <SelectItem value="ALL">📢 All Active Parents / Students</SelectItem>
+                    <SelectItem value="UNPAID">⏳ Unpaid Students Only</SelectItem>
+                    <SelectItem value="PAID">✅ Paid Students Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Template / Reminder Type */}
+              <div className="space-y-2">
+                <Label className="text-xs font-bold text-muted-foreground uppercase">Message / Template Type</Label>
+                <Select value={triggerReminderType} onValueChange={setTriggerReminderType}>
+                  <SelectTrigger className="min-h-[48px] text-sm font-medium">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CUSTOM">✉️ Custom Text Message (Type below)</SelectItem>
+                    <SelectItem value="REMINDER_1">Template: Reminder 1 (Friendly)</SelectItem>
+                    <SelectItem value="REMINDER_2">Template: Reminder 2 (Urgent)</SelectItem>
+                    <SelectItem value="FINAL">Template: Final Notice</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
+
+            {/* Custom Text Message Box */}
             <div className="space-y-2 pt-2">
-              <Label className="text-xs font-bold text-muted-foreground uppercase">
-                Custom Broadcast Message (Optional)
-              </Label>
+              <div className="flex justify-between items-center">
+                <Label className="text-xs font-bold text-muted-foreground uppercase">
+                  Custom Broadcast Text Message (Optional)
+                </Label>
+                <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-50 dark:bg-indigo-950/30 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
+                  {customText.trim() ? 'Custom Text Mode Active' : 'Template Mode Active'}
+                </span>
+              </div>
               <textarea
                 rows={4}
                 value={customText}
                 onChange={(e) => setCustomText(e.target.value)}
-                placeholder="Enter custom broadcast message. If left blank, the selected Reminder Type template will be sent. Placeholders like {parentName} and {studentName} will be resolved automatically."
-                className="w-full p-3 text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/60"
+                placeholder="Type your custom broadcast text message here (e.g. 'Dear Parents of Unicent School, please note tomorrow morning transport schedule is changed...'). Placeholders like {parentName}, {studentName}, {month}, {school} will be filled automatically per parent."
+                className="w-full p-3 text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/60 font-sans"
               />
-              <p className="text-[10px] text-muted-foreground">
-                Note: Messages (including custom broadcasts and standard reminders) are sent only to <strong>unpaid students</strong> of the selected school.
-              </p>
+              <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground pt-1">
+                <span>💡 Placeholders: <code className="bg-muted px-1 rounded text-foreground">{'{parentName}'}</code> <code className="bg-muted px-1 rounded text-foreground">{'{studentName}'}</code> <code className="bg-muted px-1 rounded text-foreground">{'{month}'}</code> <code className="bg-muted px-1 rounded text-foreground">{'{school}'}</code></span>
+                <span className="ml-auto text-emerald-600 dark:text-emerald-400 font-medium">⚡ Runs in background with 3-second spacing (prevents timeouts & connection drops)</span>
+              </div>
             </div>
           </CardContent>
-          <CardFooter className="bg-muted/10 border-t py-4 flex justify-end">
+          <CardFooter className="bg-muted/10 border-t py-4 flex justify-between items-center">
+            <p className="text-xs text-muted-foreground">
+              Target: <strong className="text-foreground">{triggerSchool === 'ALL' ? 'All Schools' : triggerSchool}</strong> ({targetAudience === 'ALL' ? 'All Parents' : targetAudience === 'UNPAID' ? 'Unpaid Parents' : 'Paid Parents'})
+            </p>
             <Button
-              disabled={!isConnected || !triggerSchool || triggerMutation.isPending}
-              className="gap-2 font-bold shadow-md shadow-primary/10"
+              disabled={!isConnected || triggerMutation.isPending}
+              className="gap-2 font-bold shadow-md shadow-primary/10 bg-indigo-600 hover:bg-indigo-500 text-white"
               onClick={() => triggerMutation.mutate()}
             >
               {triggerMutation.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Triggering…</>
+                <><Loader2 className="h-4 w-4 animate-spin" /> Triggering Background Broadcast…</>
               ) : (
-                <><Send className="h-4 w-4" /> Trigger Now</>
+                <><Send className="h-4 w-4" /> Trigger Manual Broadcast</>
               )}
             </Button>
           </CardFooter>

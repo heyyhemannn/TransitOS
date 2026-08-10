@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { requireRole } from '../middleware/rbac';
-import { UserRole, MessageType, StudentStatus, MessageStatus } from '@prisma/client';
+import { UserRole, MessageType, StudentStatus, MessageStatus, PaymentStatus } from '@prisma/client';
 import {
   getWhatsAppStatus,
   syncWhatsAppStatus,
@@ -444,6 +444,7 @@ whatsappRouter.post(
 const triggerReminderSchema = z.object({
   school: z.string().optional(),
   schoolName: z.string().optional(),
+  targetAudience: z.enum(['UNPAID', 'ALL', 'PAID']).optional(),
   reminderType: z.nativeEnum(MessageType).optional().default(MessageType.REMINDER_1),
   customText: z.string().optional(),
 }).refine(data => data.school || data.schoolName, {
@@ -452,8 +453,30 @@ const triggerReminderSchema = z.object({
 });
 
 /**
+ * GET /api/v1/whatsapp/schools
+ * Returns distinct school names from active students
+ */
+whatsappRouter.get(
+  '/schools',
+  requireRole(UserRole.ADMIN, UserRole.MANAGER),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const students = await prisma.student.findMany({
+        where: { status: StudentStatus.ACTIVE },
+        select: { school: true },
+        distinct: ['school'],
+      });
+      const schools = students.map((s) => s.school).filter(Boolean).sort();
+      res.json({ success: true, data: schools });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
  * POST /api/v1/whatsapp/trigger-reminder
- * Manually trigger reminders for a specific school
+ * Manually trigger reminders or custom text broadcasts for a specific school (or all schools)
  */
 whatsappRouter.post(
   '/trigger-reminder',
@@ -461,8 +484,9 @@ whatsappRouter.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsedBody = triggerReminderSchema.parse(req.body);
-      const school = (parsedBody.school || parsedBody.schoolName) as string;
+      const rawSchool = (parsedBody.school || parsedBody.schoolName) as string;
       const { reminderType, customText } = parsedBody;
+      const targetAudience = parsedBody.targetAudience || (customText && customText.trim().length > 0 ? 'ALL' : 'UNPAID');
 
       const status = getWhatsAppStatus();
       if (!status.connected) {
@@ -473,44 +497,110 @@ whatsappRouter.post(
         return;
       }
 
-      const unpaidStudents = await getUnpaidStudents([school]);
-      const studentIds = unpaidStudents.map(s => s.id);
+      const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const currentMonth = nowIST.getMonth() + 1;
+      const currentYear = nowIST.getFullYear();
+
+      // Build school filter condition
+      const schoolFilter = (!rawSchool || rawSchool.toUpperCase() === 'ALL')
+        ? {}
+        : { school: { contains: rawSchool, mode: 'insensitive' as const } };
+
+      let targetStudents: Array<{ id: string; name: string; school: string; whatsappNumber: string }> = [];
+
+      if (targetAudience === 'ALL') {
+        targetStudents = await prisma.student.findMany({
+          where: {
+            status: StudentStatus.ACTIVE,
+            ...schoolFilter,
+          },
+          select: { id: true, name: true, school: true, whatsappNumber: true },
+        });
+      } else if (targetAudience === 'PAID') {
+        targetStudents = await prisma.student.findMany({
+          where: {
+            status: StudentStatus.ACTIVE,
+            ...schoolFilter,
+            OR: [
+              { payments: { some: { month: currentMonth, year: currentYear, status: PaymentStatus.PAID } } },
+              { feeSchedules: { some: { month: currentMonth, year: currentYear, isPaid: true } } },
+            ],
+          },
+          select: { id: true, name: true, school: true, whatsappNumber: true },
+        });
+      } else {
+        // UNPAID
+        targetStudents = await prisma.student.findMany({
+          where: {
+            status: StudentStatus.ACTIVE,
+            ...schoolFilter,
+            NOT: {
+              OR: [
+                { payments: { some: { month: currentMonth, year: currentYear, status: PaymentStatus.PAID } } },
+                { feeSchedules: { some: { month: currentMonth, year: currentYear, isPaid: true } } },
+              ],
+            },
+          },
+          select: { id: true, name: true, school: true, whatsappNumber: true },
+        });
+      }
+
+      const studentIds = targetStudents.map(s => s.id);
       let typeToSend = reminderType;
       let extraVars: Record<string, string> | undefined = undefined;
 
-      if (customText) {
+      if (customText && customText.trim().length > 0) {
         typeToSend = MessageType.BROADCAST;
-        extraVars = { message: customText };
+        extraVars = { message: customText.trim() };
       } else {
-        // If it is REMINDER_3 or FINAL, mark overdue in DB
         if (reminderType === MessageType.REMINDER_3 || reminderType === MessageType.FINAL) {
-          const now = new Date();
           await prisma.feeSchedule.updateMany({
             where: {
-              month: now.getMonth() + 1,
-              year: now.getFullYear(),
+              month: currentMonth,
+              year: currentYear,
               isPaid: false,
-              student: { school, status: StudentStatus.ACTIVE },
+              student: { ...schoolFilter, status: StudentStatus.ACTIVE },
             },
-            data: { overdueAt: now },
+            data: { overdueAt: nowIST },
           });
         }
       }
 
-      const result = await whatsappService.broadcastToList(
-        studentIds,
-        typeToSend,
-        extraVars
-      );
+      if (studentIds.length === 0) {
+        res.json({
+          success: true,
+          data: {
+            message: `No active students found matching target criteria (${rawSchool}, audience: ${targetAudience}).`,
+            scannedCount: 0,
+            queuedCount: 0,
+            sentCount: 0,
+            failedCount: 0,
+          },
+        });
+        return;
+      }
+
+      // Group by unique WhatsApp numbers
+      const uniquePhones = new Set(targetStudents.map(s => s.whatsappNumber.replace(/\D/g, '')));
+
+      // Trigger background broadcast loop so HTTP response is instant & never times out
+      setImmediate(async () => {
+        try {
+          logger.info(`Starting manual trigger background broadcast for ${targetStudents.length} students (${uniquePhones.size} unique phones)`);
+          await whatsappService.broadcastToList(studentIds, typeToSend, extraVars);
+        } catch (bgErr) {
+          logger.error('Error in manual trigger background broadcast:', bgErr);
+        }
+      });
 
       res.json({
         success: true,
         data: {
-          scannedCount: studentIds.length,
-          sentCount: result.sent,
-          failedCount: result.failed,
-          sent: result.sent,
-          failed: result.failed,
+          message: `Manual trigger started in background for ${targetStudents.length} students across ${uniquePhones.size} unique WhatsApp numbers.`,
+          scannedCount: targetStudents.length,
+          queuedCount: uniquePhones.size,
+          sentCount: targetStudents.length,
+          failedCount: 0,
         },
       });
     } catch (error) {
