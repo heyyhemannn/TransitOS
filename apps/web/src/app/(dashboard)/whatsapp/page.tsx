@@ -198,6 +198,22 @@ export default function WhatsAppPage() {
     },
   });
 
+  const normalizedSchools = React.useMemo(() => {
+    if (!dynamicSchools) return [];
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const name of dynamicSchools) {
+      if (!name) continue;
+      const clean = name.trim();
+      const upper = clean.toUpperCase();
+      if (!seen.has(upper)) {
+        seen.add(upper);
+        result.push(clean);
+      }
+    }
+    return result.sort((a, b) => a.localeCompare(b));
+  }, [dynamicSchools]);
+
   const triggerMutation = useMutation({
     mutationFn: async () => {
       const res = await api.post<{ data: { message: string; scannedCount: number; queuedCount: number } }>('/whatsapp/trigger-reminder', {
@@ -577,15 +593,12 @@ export default function WhatsAppPage() {
                     <SelectValue placeholder="Select school…" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ALL">🏫 ALL - All Schools</SelectItem>
-                    {dynamicSchools?.map((schoolName) => (
+                    <SelectItem value="ALL">ALL - All Schools</SelectItem>
+                    {normalizedSchools.map((schoolName) => (
                       <SelectItem key={schoolName} value={schoolName}>
                         {schoolName}
                       </SelectItem>
                     ))}
-                    {!dynamicSchools?.includes('Unicent') && <SelectItem value="Unicent">Unicent</SelectItem>}
-                    {!dynamicSchools?.includes('DPS Phase 2') && <SelectItem value="DPS Phase 2">DPS Phase 2</SelectItem>}
-                    {!dynamicSchools?.includes('DPS Brindavanam') && <SelectItem value="DPS Brindavanam">DPS Brindavanam</SelectItem>}
                   </SelectContent>
                 </Select>
               </div>
@@ -598,9 +611,9 @@ export default function WhatsAppPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ALL">📢 All Active Parents / Students</SelectItem>
-                    <SelectItem value="UNPAID">⏳ Unpaid Students Only</SelectItem>
-                    <SelectItem value="PAID">✅ Paid Students Only</SelectItem>
+                    <SelectItem value="ALL">All Active Parents / Students</SelectItem>
+                    <SelectItem value="UNPAID">Unpaid Students Only</SelectItem>
+                    <SelectItem value="PAID">Paid Students Only</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -613,7 +626,7 @@ export default function WhatsAppPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="CUSTOM">✉️ Custom Text Message (Type below)</SelectItem>
+                    <SelectItem value="CUSTOM">Custom Text Message (Type below)</SelectItem>
                     <SelectItem value="REMINDER_1">Template: Reminder 1 (Friendly)</SelectItem>
                     <SelectItem value="REMINDER_2">Template: Reminder 2 (Urgent)</SelectItem>
                     <SelectItem value="FINAL">Template: Final Notice</SelectItem>
@@ -640,8 +653,8 @@ export default function WhatsAppPage() {
                 className="w-full p-3 text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/60 font-sans"
               />
               <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground pt-1">
-                <span>💡 Placeholders: <code className="bg-muted px-1 rounded text-foreground">{'{parentName}'}</code> <code className="bg-muted px-1 rounded text-foreground">{'{studentName}'}</code> <code className="bg-muted px-1 rounded text-foreground">{'{month}'}</code> <code className="bg-muted px-1 rounded text-foreground">{'{school}'}</code></span>
-                <span className="ml-auto text-emerald-600 dark:text-emerald-400 font-medium">⚡ Runs in background with 3-second spacing (prevents timeouts & connection drops)</span>
+                <span>Placeholders: <code className="bg-muted px-1 rounded text-foreground">{'{parentName}'}</code> <code className="bg-muted px-1 rounded text-foreground">{'{studentName}'}</code> <code className="bg-muted px-1 rounded text-foreground">{'{month}'}</code> <code className="bg-muted px-1 rounded text-foreground">{'{school}'}</code></span>
+                <span className="ml-auto text-emerald-600 dark:text-emerald-400 font-medium">Runs in background with 3-second spacing (prevents timeouts & connection drops)</span>
               </div>
             </div>
           </CardContent>

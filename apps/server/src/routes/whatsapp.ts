@@ -464,9 +464,19 @@ whatsappRouter.get(
       const students = await prisma.student.findMany({
         where: { status: StudentStatus.ACTIVE },
         select: { school: true },
-        distinct: ['school'],
       });
-      const schools = students.map((s) => s.school).filter(Boolean).sort();
+      const seen = new Set<string>();
+      const schools: string[] = [];
+      for (const s of students) {
+        if (!s.school) continue;
+        const normalized = s.school.trim();
+        const upper = normalized.toUpperCase();
+        if (!seen.has(upper)) {
+          seen.add(upper);
+          schools.push(normalized);
+        }
+      }
+      schools.sort((a, b) => a.localeCompare(b));
       res.json({ success: true, data: schools });
     } catch (error) {
       next(error);
