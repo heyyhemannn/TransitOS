@@ -445,7 +445,7 @@ const triggerReminderSchema = z.object({
   school: z.string().optional(),
   schoolName: z.string().optional(),
   targetAudience: z.enum(['UNPAID', 'ALL', 'PAID']).optional(),
-  reminderType: z.nativeEnum(MessageType).optional().default(MessageType.REMINDER_1),
+  reminderType: z.union([z.nativeEnum(MessageType), z.literal('CUSTOM')]).optional().default(MessageType.REMINDER_1),
   customText: z.string().optional(),
 }).refine(data => data.school || data.schoolName, {
   message: "Either school or schoolName is required",
@@ -556,13 +556,16 @@ whatsappRouter.post(
       }
 
       const studentIds = targetStudents.map(s => s.id);
-      let typeToSend = reminderType;
+      let typeToSend: MessageType = MessageType.REMINDER_1;
       let extraVars: Record<string, string> | undefined = undefined;
 
-      if (customText && customText.trim().length > 0) {
+      if (reminderType === 'CUSTOM' || (customText && customText.trim().length > 0)) {
         typeToSend = MessageType.BROADCAST;
-        extraVars = { message: customText.trim() };
+        if (customText && customText.trim().length > 0) {
+          extraVars = { message: customText.trim() };
+        }
       } else {
+        typeToSend = reminderType as MessageType;
         if (reminderType === MessageType.REMINDER_3 || reminderType === MessageType.FINAL) {
           await prisma.feeSchedule.updateMany({
             where: {
