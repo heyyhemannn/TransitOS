@@ -139,11 +139,10 @@ export default function WhatsAppPage() {
       const res = await api.get<{ data: { qr: string | null } }>('/whatsapp/qr');
       return res.data.data;
     },
-    enabled: liveStatus !== null ? !liveStatus.connected : true,
-    refetchInterval: () => {
-      const connected = liveStatus?.connected ?? polledStatus?.connected ?? false;
-      return connected ? false : 5000;
-    },
+    // Only fetch once on mount as a fallback when SSE hasn't delivered a QR yet.
+    // SSE is the real-time source of truth — no need to poll every 5s (wastes Render free tier).
+    enabled: liveQR === undefined && (liveStatus !== null ? !liveStatus.connected : true),
+    refetchInterval: false,
     select: (data) => {
       if (liveQR === undefined && data.qr) setLiveQR(data.qr);
       return data;
@@ -562,9 +561,9 @@ export default function WhatsAppPage() {
                     <SelectValue placeholder="Select school…" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="DPS PHASE 2">DPS Phase 2</SelectItem>
-                    <SelectItem value="UNICENT">Unicent</SelectItem>
-                    <SelectItem value="DPS BRINDAVANAM">DPS Brindavanam</SelectItem>
+                    <SelectItem value="DPS Phase 2">DPS Phase 2</SelectItem>
+                    <SelectItem value="Unicent">Unicent</SelectItem>
+                    <SelectItem value="DPS Brindavanam">DPS Brindavanam</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

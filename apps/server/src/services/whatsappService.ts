@@ -232,7 +232,7 @@ class WhatsAppService {
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
           } else if (shouldReconnect) {
             logger.info('Paired session detected in DB/storage. Auto-reconnecting in background (3s)...');
-            broadcastSSE('status', { connected: false, phone: this.connectedPhone, connecting: true });
+            broadcastSSE('status', { connected: false, phone: null, connecting: true });
 
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = setTimeout(() => {
@@ -241,15 +241,13 @@ class WhatsAppService {
               });
             }, 3000);
           } else {
-            logger.info('WhatsApp QR code expired/closed before scan. Auto-generating fresh QR code (2s)...');
+            // QR code expired before being scanned — do NOT auto-reinitialize.
+            // Doing so creates an infinite loop of QR generation on Render free tier.
+            // The user must manually click "Refresh QR" or "Reset & Re-Pair" in the UI.
+            logger.info('WhatsApp QR code expired before scan. Staying offline — manual QR refresh required.');
             this.connectedPhone = null;
-            broadcastSSE('status', { connected: false, phone: null, authenticating: true });
+            broadcastSSE('status', { connected: false, phone: null });
             if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
-            this.reconnectTimeout = setTimeout(() => {
-              this.initialize().catch((err) => {
-                logger.error('Failed to auto-regenerate fresh QR code:', err);
-              });
-            }, 2000);
           }
         }
       });
@@ -335,34 +333,21 @@ class WhatsAppService {
   }
 
   private formatPhone(phone: string): string {
-    let digits = phone.replace(/\D/g, '');
-
-    // Remove leading zero if present for 11-digit numbers
-    if (digits.length === 11 && digits.startsWith('0')) {
-      digits = digits.slice(1);
-    }
-
-    // If it's a standard 10-digit Indian number, prepend country code 91
-    if (digits.length === 10) {
-      digits = `91${digits}`;
-    }
-
-    // Fallback prefixing if it doesn't already start with 91
-    if (!digits.startsWith('91') && digits.length < 12) {
-      digits = `91${digits}`;
-    }
-
-    return `${digits}@s.whatsapp.net`;
+    // All numbers in this system are Indian (+91) 10-digit mobile numbers.
+    // Strip everything non-digit, take the last 10 digits, prepend 91.
+    // Simple and impossible to double-prefix regardless of input format.
+    const digits = phone.replace(/\D/g, '');
+    const last10 = digits.slice(-10);
+    return `91${last10}@s.whatsapp.net`;
   }
 
   private async getVerifiedJid(phone: string): Promise<string> {
-    let cleanDigits = phone.replace(/\D/g, '');
-    if (cleanDigits.length === 10) cleanDigits = `91${cleanDigits}`;
-    const defaultJid = `${cleanDigits}@s.whatsapp.net`;
-
-    if (!this.sock) return defaultJid;
+    const digits = phone.replace(/\D/g, '');
+    const last10 = digits.slice(-10);
+    const jid = `91${last10}@s.whatsapp.net`;
+    if (!this.sock) return jid;
     try {
-      const results = await this.sock.onWhatsApp(cleanDigits);
+      const results = await this.sock.onWhatsApp(`91${last10}`);
       if (results && results.length > 0) {
         const match = results.find((r) => r.exists);
         if (match && match.jid) {
@@ -371,9 +356,9 @@ class WhatsAppService {
         }
       }
     } catch (err) {
-      logger.warn(`onWhatsApp check error for ${phone}, using default JID ${defaultJid}:`, err);
+      logger.warn(`onWhatsApp check error for ${phone}, using default JID ${jid}:`, err);
     }
-    return defaultJid;
+    return jid;
   }
 
   private async enforceRateLimit() {
@@ -825,8 +810,25 @@ class WhatsAppService {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
-    await this.sock?.logout();
-    await prisma.whatsAppSession.deleteMany();
+    // Clean up socket listeners and close stream BEFORE calling logout()
+    // to prevent Baileys from firing connection.update events that trigger
+    // spurious auto-reconnect attempts after a manual logout.
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners('connection.update');
+        this.sock.ev.removeAllListeners('creds.update');
+        this.sock.ev.removeAllListeners('message-receipt.update');
+        this.sock.ev.removeAllListeners('messages.update');
+        await this.sock.logout();
+        this.sock.end(undefined);
+      } catch (err) {
+        logger.warn('Error during WhatsApp logout cleanup:', err);
+      }
+      this.sock = null;
+    }
+    // Clear session files/DB records so next initialize() shows a fresh QR
+    const { clearSession } = await usePrismaAuthState();
+    await clearSession();
     this.isReady = false;
     this.isConnecting = false;
     this.connectedPhone = null;
