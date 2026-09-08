@@ -21,29 +21,41 @@ const loginSchema = z.object({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RATE LIMITING MIDDLEWARE
+// RATE LIMITING MIDDLEWARE (Lightweight in-memory — zero DB queries)
 // ─────────────────────────────────────────────────────────────────────────────
-async function loginRateLimiter(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown';
-  const key = `ratelimit:login:${ip}`;
-  const windowMs = 15 * 60 * 1000; // 15 minutes
-  const maxAttempts = 200;
+const loginAttemptsMap = new Map<string, { count: number; resetAt: number }>();
 
-  try {
-    const { count, ttl } = await incrementRateLimit(key, windowMs);
-    if (count > maxAttempts) {
-      res.status(429).json({
-        success: false,
-        error: `Too many login attempts. Please try again in ${Math.ceil(ttl / 60)} minutes.`,
-      });
-      return;
-    }
-    next();
-  } catch (error) {
-    // Graceful fallback: do not block login if Redis cache has issues
-    logger.warn('Login rate limiter connection error:', error);
-    next();
+// Periodic cleanup of expired rate limit entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of loginAttemptsMap.entries()) {
+    if (now > entry.resetAt) loginAttemptsMap.delete(ip);
   }
+}, 10 * 60 * 1000);
+
+function loginRateLimiter(req: Request, res: Response, next: NextFunction): void {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown';
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000; // 15 min
+  const maxAttempts = 100;
+
+  const record = loginAttemptsMap.get(ip);
+  if (!record || now > record.resetAt) {
+    loginAttemptsMap.set(ip, { count: 1, resetAt: now + windowMs });
+    return next();
+  }
+
+  record.count += 1;
+  if (record.count > maxAttempts) {
+    const remainingMinutes = Math.ceil((record.resetAt - now) / 60000);
+    res.status(429).json({
+      success: false,
+      error: `Too many login attempts. Please try again in ${remainingMinutes} minutes.`,
+    });
+    return;
+  }
+
+  next();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

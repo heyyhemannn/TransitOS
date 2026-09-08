@@ -222,6 +222,9 @@ import { UserRole } from '@prisma/client';
 
 async function ensureDefaultUsers(): Promise<void> {
   try {
+    // Clean up any stale rate limit keys from DB Settings table
+    await prisma.settings.deleteMany({ where: { key: { startsWith: 'ratelimit:' } } }).catch(() => {});
+
     const passwordHash = await bcrypt.hash('Admin@123', 12);
     await prisma.user.upsert({
       where: { email: 'admin@stms.com' },
