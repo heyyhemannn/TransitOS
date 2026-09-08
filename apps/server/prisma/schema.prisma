@@ -159,14 +159,19 @@ model WhatsAppMessage {
   id           String        @id @default(cuid())
   studentId    String?
   student      Student?      @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  paymentId    String?       // links to Payment for CONFIRMATION idempotency
   phone        String
   type         MessageType
   body         String
+  wamId        String?       // WhatsApp message ID for delivery receipt tracking
   scheduledAt  DateTime?
   sentAt       DateTime?
   status       MessageStatus @default(QUEUED)
   errorMessage String?
   createdAt    DateTime      @default(now())
+
+  @@index([paymentId])
+  @@index([wamId])
 }
 
 model AuditLog {

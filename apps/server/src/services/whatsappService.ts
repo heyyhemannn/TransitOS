@@ -169,10 +169,7 @@ class WhatsAppService {
           if (messageId) {
             try {
               await prisma.whatsAppMessage.updateMany({
-                where: {
-                  errorMessage: { contains: messageId },
-                  status: MessageStatus.SENT,
-                },
+                where: { wamId: messageId, status: MessageStatus.SENT },
                 data: { status: MessageStatus.DELIVERED },
               });
             } catch (err) {
@@ -190,7 +187,10 @@ class WhatsAppService {
           if (messageId && statusVal !== undefined && statusVal !== null) {
             try {
               let targetStatus: MessageStatus | null = null;
-              if (statusVal >= 3) {
+              // status 4 = Read, 3 = Delivered, 2 = Server ACK, 1 = Pending
+              if (statusVal >= 4) {
+                targetStatus = MessageStatus.DELIVERED; // read counts as delivered
+              } else if (statusVal >= 3) {
                 targetStatus = MessageStatus.DELIVERED;
               } else if (statusVal >= 2) {
                 targetStatus = MessageStatus.SENT;
@@ -198,9 +198,7 @@ class WhatsAppService {
 
               if (targetStatus) {
                 await prisma.whatsAppMessage.updateMany({
-                  where: {
-                    errorMessage: { contains: messageId },
-                  },
+                  where: { wamId: messageId },
                   data: { status: targetStatus },
                 });
               }
@@ -478,11 +476,10 @@ class WhatsAppService {
         if (sentResult?.key?.id) cacheSentMessage(sentResult.key.id, msgContent);
       }
 
-      const wamId = sentResult?.key?.id;
-      const metaMessage = wamId ? `[WAM_ID: ${wamId}]` : null;
+      const wamId = sentResult?.key?.id ?? null;
 
       await prisma.whatsAppMessage.create({
-        data: { studentId, phone, type, body, status: MessageStatus.SENT, sentAt: now, errorMessage: metaMessage, createdAt: now },
+        data: { studentId, phone, type, body, wamId, status: MessageStatus.SENT, sentAt: now, createdAt: now },
       });
       return { success: true };
     } catch (err: any) {
@@ -510,11 +507,11 @@ class WhatsAppService {
     }
   }
 
-  async sendTemplate(
+  private async buildTemplateBody(
     studentId: string,
     type: MessageType,
     extraVars?: Record<string, string>
-  ): Promise<void> {
+  ): Promise<{ student: any; body: string }> {
     const student = await prisma.student.findUnique({
       where: { id: studentId },
       include: { route: true },
@@ -540,23 +537,108 @@ class WhatsAppService {
       ...extraVars,
     };
 
-    const templates = TEMPLATES;
-
-    let body = templates[type] ?? '';
-    // First, resolve the nested custom message if provided
+    let body = TEMPLATES[type] ?? '';
     if (extraVars?.message) {
       body = body.replaceAll('{message}', extraVars.message);
     }
-
-    // Resolve all other variables
     for (const [key, value] of Object.entries(vars)) {
       body = body.replaceAll(`{${key}}`, value);
     }
+    return { student, body };
+  }
 
+  async sendTemplate(
+    studentId: string,
+    type: MessageType,
+    extraVars?: Record<string, string>
+  ): Promise<void> {
+    const { student, body } = await this.buildTemplateBody(studentId, type, extraVars);
     await this.sendMessage(student.whatsappNumber, body, studentId, type);
   }
 
+  /** Like sendTemplate but also stores paymentId on the log record for idempotency. */
+  private async sendTemplateWithPayment(
+    studentId: string,
+    type: MessageType,
+    paymentId: string,
+    extraVars?: Record<string, string>
+  ): Promise<void> {
+    const { student, body } = await this.buildTemplateBody(studentId, type, extraVars);
+    await this.sendMessageWithPayment(student.whatsappNumber, body, studentId, type, paymentId);
+  }
+
+  /** Like sendMessage but saves paymentId on the log record. */
+  private async sendMessageWithPayment(
+    phone: string,
+    body: string,
+    studentId: string | null,
+    type: MessageType,
+    paymentId: string,
+    retryCount = 0
+  ): Promise<{ success: boolean; error?: string }> {
+    const now = new Date();
+    const isConnected = await this.ensureConnected();
+    const isWsOpen = this.sock && (this.sock.ws as any)?.isOpen !== false;
+
+    if (!isConnected || !this.sock || !isWsOpen) {
+      const errMsg = 'WhatsApp connection stream is inactive. Please pair QR first.';
+      await prisma.whatsAppMessage.create({
+        data: { studentId, paymentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
+      });
+      return { success: false, error: errMsg };
+    }
+
+    const { jid, exists } = await this.getVerifiedJid(phone);
+    if (!exists) {
+      const errMsg = `Phone number ${phone} is not registered on WhatsApp.`;
+      await prisma.whatsAppMessage.create({
+        data: { studentId, paymentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
+      });
+      return { success: false, error: errMsg };
+    }
+
+    try {
+      await this.enforceRateLimit();
+      const msgContent = { text: body };
+      const sentResult = await this.sock.sendMessage(jid, msgContent);
+      if (sentResult?.key?.id) cacheSentMessage(sentResult.key.id, msgContent);
+      const wamId = sentResult?.key?.id ?? null;
+      await prisma.whatsAppMessage.create({
+        data: { studentId, paymentId, phone, type, body, wamId, status: MessageStatus.SENT, sentAt: now, createdAt: now },
+      });
+      return { success: true };
+    } catch (err: any) {
+      const errMsg = err?.message || 'Unknown send error';
+      const isConnErr = errMsg.toLowerCase().includes('connection') || errMsg.toLowerCase().includes('closed') || errMsg.toLowerCase().includes('socket') || errMsg.toLowerCase().includes('stream');
+      if (isConnErr && retryCount < 1) {
+        this.isReady = false;
+        await this.initialize().catch(() => {});
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        return this.sendMessageWithPayment(phone, body, studentId, type, paymentId, retryCount + 1);
+      }
+      await prisma.whatsAppMessage.create({
+        data: { studentId, paymentId, phone, type, body, status: MessageStatus.FAILED, errorMessage: errMsg, createdAt: now },
+      });
+      return { success: false, error: errMsg };
+    }
+  }
+
   async sendConfirmation(studentId: string, paymentId: string): Promise<void> {
+    // ── Idempotency guard ────────────────────────────────────────────────────
+    // If a CONFIRMATION (text or PDF) was already sent successfully for this
+    // specific paymentId, skip entirely to prevent duplicate messages.
+    const alreadySent = await prisma.whatsAppMessage.findFirst({
+      where: {
+        paymentId,
+        type: MessageType.CONFIRMATION,
+        status: { in: [MessageStatus.SENT, MessageStatus.DELIVERED] },
+      },
+    });
+    if (alreadySent) {
+      logger.info(`[Confirmation] Skipping duplicate send — paymentId ${paymentId} already has a SENT/DELIVERED confirmation (id: ${alreadySent.id}).`);
+      return;
+    }
+
     let payment = await prisma.payment.findUnique({
       where: { id: paymentId },
       include: { student: true },
@@ -599,8 +681,8 @@ class WhatsAppService {
       .toUpperCase();
     const receiptId = `PAY-${shortMonth}${payment.year}-${paymentId.slice(-6).toUpperCase()}`;
 
-    // 1. Send Text Confirmation Template
-    await this.sendTemplate(studentId, MessageType.CONFIRMATION, {
+    // 1. Send Text Confirmation Template — pass paymentId for idempotency tracking
+    await this.sendTemplateWithPayment(studentId, MessageType.CONFIRMATION, paymentId, {
       receiptId,
       studentName: payment.student?.name ?? '',
       paidDate,
@@ -733,18 +815,18 @@ class WhatsAppService {
       const sentResult = await this.sock.sendMessage(jid, pdfContent);
       if (sentResult?.key?.id) cacheSentMessage(sentResult.key.id, pdfContent);
 
-      const wamId = sentResult?.key?.id;
-      const metaMessage = wamId ? `[WAM_ID: ${wamId}]` : null;
+      const wamId = sentResult?.key?.id ?? null;
 
       await prisma.whatsAppMessage.create({
         data: {
           studentId: payment.student.id,
+          paymentId: payment.id,
           phone: payment.student.whatsappNumber,
           type: MessageType.CONFIRMATION,
           body: `[PDF Bill Receipt: ${receiptId}.pdf]`,
+          wamId,
           status: MessageStatus.SENT,
           sentAt: now,
-          errorMessage: metaMessage,
           createdAt: now,
         },
       });
