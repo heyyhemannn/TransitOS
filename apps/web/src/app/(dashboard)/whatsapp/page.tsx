@@ -123,10 +123,12 @@ export default function WhatsAppPage() {
   const { data: polledStatus, isLoading: statusLoading } = useQuery({
     queryKey: ['wa-device-status'],
     queryFn: async () => {
-      const res = await api.get<{ data: WAStatus }>('/whatsapp/status');
+      // 60s timeout — Render free tier can take up to 50s to cold-start
+      const res = await api.get<{ data: WAStatus }>('/whatsapp/status', { timeout: 60_000 });
       return res.data.data;
     },
-    refetchInterval: (query: any) => (query.state.data?.connected ? 30000 : 5000),
+    refetchInterval: (query: any) => (query.state.data?.connected ? 30000 : 8000),
+    retry: 2,
     select: (data: WAStatus) => {
       if (!liveStatus) setLiveStatus(data);
       return data;
@@ -136,17 +138,18 @@ export default function WhatsAppPage() {
   const { data: polledQR, isLoading: qrLoading } = useQuery({
     queryKey: ['wa-qr-code'],
     queryFn: async () => {
-      const res = await api.get<{ data: { qr: string | null } }>('/whatsapp/qr');
+      const res = await api.get<{ data: { qr: string | null } }>('/whatsapp/qr', { timeout: 60_000 });
       return res.data.data;
     },
     enabled: !(liveStatus?.connected ?? polledStatus?.connected),
     refetchInterval: (query: any) => {
-      // Poll every 3 seconds if WhatsApp is disconnected and no QR code is in state
+      // Poll every 5 seconds if WhatsApp is disconnected and no QR code is in state
       if (!(liveStatus?.connected ?? polledStatus?.connected) && !liveQR && !query.state.data?.qr) {
-        return 3000;
+        return 5000;
       }
       return false;
     },
+    retry: 2,
     select: (data: { qr: string | null }) => {
       if (data.qr && !liveQR) setLiveQR(data.qr);
       return data;
