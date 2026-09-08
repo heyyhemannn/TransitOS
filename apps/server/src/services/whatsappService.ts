@@ -239,7 +239,9 @@ class WhatsAppService {
           this.isConnecting = true;
           this.isReady = false;
           try {
-            this.qrBase64 = await QRCode.toDataURL(qr);
+            const qrLib: any = QRCode;
+            const toDataURL = qrLib.toDataURL || qrLib.default?.toDataURL || QRCode.toDataURL;
+            this.qrBase64 = await toDataURL(qr);
             logger.info('WhatsApp QR Code generated — waiting for scan.');
             broadcastSSE('qr', { qr: this.qrBase64 });
           } catch (err) {

@@ -143,17 +143,14 @@ export default function WhatsAppPage() {
     },
     enabled: !(liveStatus?.connected ?? polledStatus?.connected),
     refetchInterval: (query: any) => {
-      // Poll every 5 seconds if WhatsApp is disconnected and no QR code is in state
-      if (!(liveStatus?.connected ?? polledStatus?.connected) && !liveQR && !query.state.data?.qr) {
-        return 5000;
+      // Poll every 3 seconds if WhatsApp is disconnected and no QR code is available yet
+      const isConn = liveStatus?.connected ?? polledStatus?.connected;
+      if (!isConn && !liveQR && !query.state.data?.qr) {
+        return 3000;
       }
       return false;
     },
     retry: 2,
-    select: (data: { qr: string | null }) => {
-      if (data.qr && !liveQR) setLiveQR(data.qr);
-      return data;
-    },
   });
 
   // ─── Derived state ────────────────────────────────────────────────────────────
@@ -161,7 +158,7 @@ export default function WhatsAppPage() {
   const isConnected = status?.connected ?? false;
   const isConnecting = status?.connecting ?? false;
   const isAuthenticating = status?.authenticating ?? false;
-  const displayQR = liveQR !== undefined ? liveQR : polledQR?.qr;
+  const displayQR = (liveQR && liveQR.length > 0) ? liveQR : (polledQR?.qr ?? null);
 
   // ─── Test Message Mutation ────────────────────────────────────────────────────
   const sendTestMutation = useMutation({
