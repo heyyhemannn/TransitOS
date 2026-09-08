@@ -41,16 +41,17 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
+        // Clear local state IMMEDIATELY so UI responds right away
+        set({ user: null, accessToken: null, refreshToken: null, error: null });
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        // Best-effort server-side cleanup (don't block on it)
         try {
           const { refreshToken } = get();
-          await api.post('/auth/logout', { refreshToken });
+          await api.post('/auth/logout', { refreshToken }, { timeout: 5_000 });
         } catch {
-          // swallow error — clear local state regardless
-        } finally {
-          set({ user: null, accessToken: null, refreshToken: null, error: null });
-          if (typeof window !== 'undefined') {
-            window.location.href = '/login';
-          }
+          // Ignore — local state already cleared above
         }
       },
 
