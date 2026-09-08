@@ -115,12 +115,11 @@ app.use(cookieParser());
 app.use(requestLogger);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HEALTH CHECK
+// HEALTH & MONITORING (UptimeRobot / Render Health Checks)
 // ─────────────────────────────────────────────────────────────────────────────
-app.get('/health', async (_req, res) => {
+const healthHandler = async (_req: express.Request, res: express.Response) => {
   let dbStatus = 'ok';
   try {
-    // Perform a quick query to keep Supabase active and verify database health
     await prisma.$queryRaw`SELECT 1`;
   } catch (err) {
     dbStatus = 'error';
@@ -136,7 +135,12 @@ app.get('/health', async (_req, res) => {
       version: process.env.npm_package_version ?? '1.0.0',
     },
   });
-});
+};
+
+app.get('/health', healthHandler);
+app.get('/ping', healthHandler);
+app.get('/api/v1/health', healthHandler);
+app.get('/api/v1/ping', healthHandler);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API ROUTES
