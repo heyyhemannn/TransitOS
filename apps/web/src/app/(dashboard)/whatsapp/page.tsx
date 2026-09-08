@@ -371,9 +371,12 @@ export default function WhatsAppPage() {
           </CardHeader>
           <CardContent className="flex flex-col items-center justify-center py-6 min-h-[320px]">
             {statusLoading && !status ? (
-              <div className="flex flex-col items-center gap-2">
+              <div className="flex flex-col items-center gap-3 text-center">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Syncing gateway logs...</p>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Server is waking up...</p>
+                  <p className="text-xs text-muted-foreground mt-1">This may take 30–60 seconds on first load.</p>
+                </div>
               </div>
             ) : isConnected ? (
               <div className="flex flex-col items-center text-center space-y-4">
@@ -693,7 +696,7 @@ function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof impor
   const [statusFilter, setStatusFilter] = React.useState('ALL');
   const [retryingId, setRetryingId] = React.useState<string | null>(null);
 
-  const { data: logs, isLoading } = useQuery({
+  const { data: logs, isLoading, error: logsError } = useQuery({
     queryKey: ['whatsapp-logs', statusFilter],
     queryFn: async () => {
       const params: Record<string, string> = {};
@@ -708,10 +711,11 @@ function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof impor
           createdAt: string;
           student: { name: string } | null;
         }>;
-      }>('/whatsapp/logs', { params });
+      }>('/whatsapp/logs', { params, timeout: 60_000 });
       return res.data.data;
     },
     staleTime: 30_000,
+    retry: 2,
   });
 
   const retryMutation = useMutation({
@@ -791,8 +795,15 @@ function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof impor
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="flex items-center justify-center py-10">
+          <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <p className="text-xs text-muted-foreground">Loading logs — server may be waking up (30–60s)...</p>
+          </div>
+        ) : logsError ? (
+          <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            <p className="text-sm font-medium">Could not load message logs</p>
+            <p className="text-xs text-muted-foreground">Server may still be starting. Please wait and refresh.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
