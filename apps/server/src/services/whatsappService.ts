@@ -13,6 +13,18 @@ import { MessageType, MessageStatus } from '@prisma/client';
 // Memory buffer for Baileys logs
 export const baileysLogsBuffer: string[] = [];
 
+// In-memory cache of sent message content for Baileys re-keying & retry handling
+export const sentMessageCache = new Map<string, any>();
+
+export function cacheSentMessage(keyId: string | null | undefined, messageContent: any) {
+  if (!keyId) return;
+  sentMessageCache.set(keyId, messageContent);
+  if (sentMessageCache.size > 2000) {
+    const firstKey = sentMessageCache.keys().next().value;
+    if (firstKey) sentMessageCache.delete(firstKey);
+  }
+}
+
 // Custom Pino logger for Baileys internals that writes to memory buffer
 const baileysLogger = P(
   { level: 'warn' }, // 'warn' only — saves RAM on free tier
@@ -130,6 +142,22 @@ class WhatsAppService {
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
+        getMessage: async (key) => {
+          if (key.id && sentMessageCache.has(key.id)) {
+            return sentMessageCache.get(key.id);
+          }
+          if (key.id) {
+            try {
+              const msg = await prisma.whatsAppMessage.findFirst({
+                where: { errorMessage: { contains: key.id } },
+              });
+              if (msg) {
+                return { conversation: msg.body };
+              }
+            } catch {}
+          }
+          return { conversation: '' };
+        },
       });
 
       this.sock.ev.on('creds.update', saveCreds);
@@ -426,21 +454,28 @@ class WhatsAppService {
         try {
           if (qrImagePath) {
             const imageBuffer = fs.readFileSync(qrImagePath);
-            sentResult = await this.sock.sendMessage(jid, {
+            const msgContent = {
               image: imageBuffer,
               caption: body,
               mimetype: 'image/jpeg',
-            });
+            };
+            sentResult = await this.sock.sendMessage(jid, msgContent);
+            if (sentResult?.key?.id) cacheSentMessage(sentResult.key.id, msgContent);
           } else {
-            logger.warn(`Payment QR image not found in any candidate path. Sending text only.`);
-            sentResult = await this.sock.sendMessage(jid, { text: body });
+            const msgContent = { text: body };
+            sentResult = await this.sock.sendMessage(jid, msgContent);
+            if (sentResult?.key?.id) cacheSentMessage(sentResult.key.id, msgContent);
           }
         } catch (mediaErr) {
           logger.error('Failed to send QR image media, falling back to text:', mediaErr);
-          sentResult = await this.sock.sendMessage(jid, { text: body });
+          const msgContent = { text: body };
+          sentResult = await this.sock.sendMessage(jid, msgContent);
+          if (sentResult?.key?.id) cacheSentMessage(sentResult.key.id, msgContent);
         }
       } else {
-        sentResult = await this.sock.sendMessage(jid, { text: body });
+        const msgContent = { text: body };
+        sentResult = await this.sock.sendMessage(jid, msgContent);
+        if (sentResult?.key?.id) cacheSentMessage(sentResult.key.id, msgContent);
       }
 
       const wamId = sentResult?.key?.id;
@@ -689,12 +724,14 @@ class WhatsAppService {
       await this.enforceRateLimit(); // respect 3-second inter-message spacing
 
       const now = new Date();
-      const sentResult = await this.sock.sendMessage(jid, {
+      const pdfContent = {
         document: pdfBuffer,
         mimetype: 'application/pdf',
         fileName: `${receiptId}.pdf`,
         caption: `🧾 Bill Receipt for ${payment.student.name} — ${this.formatMonth(payment.month, payment.year)}`,
-      });
+      };
+      const sentResult = await this.sock.sendMessage(jid, pdfContent);
+      if (sentResult?.key?.id) cacheSentMessage(sentResult.key.id, pdfContent);
 
       const wamId = sentResult?.key?.id;
       const metaMessage = wamId ? `[WAM_ID: ${wamId}]` : null;
