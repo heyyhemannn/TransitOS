@@ -1,4 +1,5 @@
-import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+/// <reference types="node" />
+import axios, { type AxiosError, type InternalAxiosRequestConfig, type AxiosResponse } from 'axios';
 import { useAuthStore } from '@/lib/auth';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'https://transitos-api-new.onrender.com/api/v1';
@@ -33,7 +34,7 @@ let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: unknow
 const AUTH_BYPASS_PATHS = ['/auth/refresh', '/auth/login', '/auth/logout'];
 
 api.interceptors.response.use(
-  (response) => response,
+  (response: AxiosResponse) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 

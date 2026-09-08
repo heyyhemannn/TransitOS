@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
@@ -205,10 +206,10 @@ whatsappRouter.post(
 
       // Load Settings
       const settingsList = await prisma.settings.findMany();
-      const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
-      const businessName = settingsMap.get('businessName') || 'Sri Sai Travels';
-      const upiId = settingsMap.get('upiId') || 'yourupi@ybl';
-      const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'https://transitos.vercel.app';
+      const settingsMap = new Map<string, string>(settingsList.map((s: { key: string; value: string }) => [s.key, s.value]));
+      const businessName: string = settingsMap.get('businessName') || 'Sri Sai Travels';
+      const upiId: string = settingsMap.get('upiId') || 'yourupi@ybl';
+      const webAppUrl: string = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'https://transitos.vercel.app';
 
       // Date variables
       const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
@@ -327,10 +328,10 @@ whatsappRouter.post(
 
       // Load Settings
       const settingsList = await prisma.settings.findMany();
-      const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
-      const businessName = settingsMap.get('businessName') || 'Sri Sai Travels';
-      const upiId = settingsMap.get('upiId') || 'yourupi@ybl';
-      const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'http://localhost:3000';
+      const settingsMap = new Map<string, string>(settingsList.map((s: { key: string; value: string }) => [s.key, s.value]));
+      const businessName: string = settingsMap.get('businessName') || 'Sri Sai Travels';
+      const upiId: string = settingsMap.get('upiId') || 'yourupi@ybl';
+      const webAppUrl: string = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'http://localhost:3000';
 
       const monthsNames = [
         'January',
@@ -361,8 +362,8 @@ whatsappRouter.post(
           idx++;
 
           const parentName = group[0].parentName;
-          const studentName = group.map((s) => s.name).join(' & ');
-          const totalAmount = group.reduce((sum, s) => sum + s.monthlyFee, 0);
+          const studentName = group.map((s: { name: string }) => s.name).join(' & ');
+          const totalAmount = group.reduce((sum: number, s: { monthlyFee: number }) => sum + s.monthlyFee, 0);
           const amountRupees = (totalAmount / 100).toFixed(0);
 
           const templateText = TEMPLATES[MessageType.REMINDER_1];
@@ -423,10 +424,10 @@ whatsappRouter.post(
       }
 
       const settingsList = await prisma.settings.findMany();
-      const settingsMap = new Map(settingsList.map((s) => [s.key, s.value]));
-      const businessName = settingsMap.get('businessName') || 'Hemanth Transport Services';
-      const upiId = settingsMap.get('upiId') || '9010009967@axl';
-      const webAppUrl = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'http://localhost:3000';
+      const settingsMap = new Map<string, string>(settingsList.map((s: { key: string; value: string }) => [s.key, s.value]));
+      const businessName: string = settingsMap.get('businessName') || 'Hemanth Transport Services';
+      const upiId: string = settingsMap.get('upiId') || '9010009967@axl';
+      const webAppUrl: string = settingsMap.get('frontendUrl') || process.env.FRONTEND_URL || 'http://localhost:3000';
 
       const body = formatTemplate(TEMPLATES[MessageType.REMINDER_1], {
         parentName: 'Test Parent (Demo)',
@@ -456,7 +457,7 @@ const triggerReminderSchema = z.object({
   targetAudience: z.enum(['UNPAID', 'ALL', 'PAID']).optional(),
   reminderType: z.union([z.nativeEnum(MessageType), z.literal('CUSTOM')]).optional().default(MessageType.REMINDER_1),
   customText: z.string().optional(),
-}).refine(data => data.school || data.schoolName, {
+}).refine((data: { school?: string; schoolName?: string }) => data.school || data.schoolName, {
   message: "Either school or schoolName is required",
   path: ["school"]
 });

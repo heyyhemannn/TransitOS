@@ -1,3 +1,4 @@
+/// <reference types="node" />
 'use client';
 
 import * as React from 'react';
@@ -62,7 +63,7 @@ export default function WhatsAppPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { canMutate } = usePageRole();
-  const storeToken = useAuthStore((s) => s.accessToken);
+  const storeToken = useAuthStore((s: { accessToken: string | null }) => s.accessToken);
 
   // Local SSE-driven state (source of truth for real-time updates)
   const [liveStatus, setLiveStatus] = React.useState<WAStatus | null>(null);
@@ -126,8 +127,8 @@ export default function WhatsAppPage() {
       const res = await api.get<{ data: WAStatus }>('/whatsapp/status');
       return res.data.data;
     },
-    refetchInterval: (query) => (query.state.data?.connected ? 30000 : 5000),
-    select: (data) => {
+    refetchInterval: (query: any) => (query.state.data?.connected ? 30000 : 5000),
+    select: (data: WAStatus) => {
       if (!liveStatus) setLiveStatus(data);
       return data;
     },
@@ -140,14 +141,14 @@ export default function WhatsAppPage() {
       return res.data.data;
     },
     enabled: !(liveStatus?.connected ?? polledStatus?.connected),
-    refetchInterval: (query) => {
+    refetchInterval: (query: any) => {
       // Poll every 3 seconds if WhatsApp is disconnected and no QR code is in state
       if (!(liveStatus?.connected ?? polledStatus?.connected) && !liveQR && !query.state.data?.qr) {
         return 3000;
       }
       return false;
     },
-    select: (data) => {
+    select: (data: { qr: string | null }) => {
       if (data.qr && !liveQR) setLiveQR(data.qr);
       return data;
     },
@@ -180,7 +181,7 @@ export default function WhatsAppPage() {
       const res = await api.post<{ data: { sent: number; failed: number } }>('/whatsapp/broadcast-unpaid');
       return res.data.data;
     },
-    onSuccess: (data) => {
+    onSuccess: (data: { sent?: number; failed?: number } | undefined) => {
       toast({ title: 'Broadcast Complete', description: `Sent: ${data?.sent ?? '?'}, Failed: ${data?.failed ?? 0}.`, variant: 'success' as any });
     },
     onError: (err: any) => {
@@ -228,7 +229,7 @@ export default function WhatsAppPage() {
       });
       return res.data.data;
     },
-    onSuccess: (data) => {
+    onSuccess: (data: { message?: string } | undefined) => {
       toast({
         title: 'Broadcast Started in Background',
         description: data?.message || 'Manual trigger initiated in background.',
@@ -598,7 +599,7 @@ export default function WhatsAppPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="ALL">ALL - All Schools</SelectItem>
-                    {normalizedSchools.map((schoolName) => (
+                    {normalizedSchools.map((schoolName: string) => (
                       <SelectItem key={schoolName} value={schoolName}>
                         {schoolName}
                       </SelectItem>
@@ -652,7 +653,7 @@ export default function WhatsAppPage() {
               <textarea
                 rows={4}
                 value={customText}
-                onChange={(e) => setCustomText(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCustomText(e.target.value)}
                 placeholder="Type your custom broadcast text message here (e.g. 'Dear Parents of Unicent School, please note tomorrow morning transport schedule is changed...'). Placeholders like {parentName}, {studentName}, {month}, {school} will be filled automatically per parent."
                 className="w-full p-3 text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-muted-foreground/60 font-sans"
               />
@@ -805,7 +806,7 @@ function MessageLogsCard({ queryClient }: { queryClient: ReturnType<typeof impor
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {logs?.map((log) => (
+                {logs?.map((log: any) => (
                   <tr key={log.id} className="hover:bg-muted/30 transition-colors">
                     <td className="py-3 px-3 text-xs text-muted-foreground whitespace-nowrap">
                       {new Date(log.createdAt).toLocaleString('en-IN', {
