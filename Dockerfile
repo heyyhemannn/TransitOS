@@ -22,6 +22,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/types/package.json ./packages/types/
 COPY apps/server/package.json ./apps/server/
+COPY apps/web/package.json ./apps/web/
 
 # Install dependencies for all workspaces
 RUN npm ci --include=dev
