@@ -80,10 +80,9 @@ app.use(
   }),
 );
 
-// Handle OPTIONS preflight for ALL routes explicitly
-// This MUST be before all other route registrations
+// Handle OPTIONS preflight for ALL routes explicitly (Express 5 path-to-regexp requires /(.*)/ or named splat instead of '*')
 app.options(
-  '*',
+  /(.*)/,
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
