@@ -19,7 +19,7 @@ export const sentMessageCache = new Map<string, any>();
 export function cacheSentMessage(keyId: string | null | undefined, messageContent: any) {
   if (!keyId) return;
   sentMessageCache.set(keyId, messageContent);
-  if (sentMessageCache.size > 2000) {
+  if (sentMessageCache.size > 500) {
     const firstKey = sentMessageCache.keys().next().value;
     if (firstKey) sentMessageCache.delete(firstKey);
   }
@@ -49,7 +49,7 @@ const baileysLogger = P(
       } catch {
         baileysLogsBuffer.push(msg.trim());
       }
-      if (baileysLogsBuffer.length > 500) {
+      if (baileysLogsBuffer.length > 200) {
         baileysLogsBuffer.shift();
       }
     }
