@@ -76,7 +76,7 @@ export default function WhatsAppPage() {
 
   // ─── SSE: Real-time event stream ──────────────────────────────────────────────
   React.useEffect(() => {
-    const base = process.env.NEXT_PUBLIC_API_URL || '';
+    const base = process.env.NEXT_PUBLIC_API_URL || 'https://transitos-api-new.onrender.com/api/v1';
     const token = storeToken || useAuthStore.getState().accessToken;
     const url = `${base}/whatsapp/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
@@ -100,7 +100,7 @@ export default function WhatsAppPage() {
       es.addEventListener('qr', (e) => {
         try {
           const { qr } = JSON.parse(e.data);
-          setLiveQR(qr);
+          if (qr) setLiveQR(qr);
         } catch { /* ignore */ }
       });
 
@@ -126,7 +126,7 @@ export default function WhatsAppPage() {
       const res = await api.get<{ data: WAStatus }>('/whatsapp/status');
       return res.data.data;
     },
-    refetchInterval: (query) => (query.state.data?.connected ? 30000 : 15000),
+    refetchInterval: (query) => (query.state.data?.connected ? 30000 : 5000),
     select: (data) => {
       if (!liveStatus) setLiveStatus(data);
       return data;
@@ -139,12 +139,16 @@ export default function WhatsAppPage() {
       const res = await api.get<{ data: { qr: string | null } }>('/whatsapp/qr');
       return res.data.data;
     },
-    // Only fetch once on mount as a fallback when SSE hasn't delivered a QR yet.
-    // SSE is the real-time source of truth — no need to poll every 5s (wastes Render free tier).
-    enabled: liveQR === undefined && (liveStatus !== null ? !liveStatus.connected : true),
-    refetchInterval: false,
+    enabled: !(liveStatus?.connected ?? polledStatus?.connected),
+    refetchInterval: (query) => {
+      // Poll every 3 seconds if WhatsApp is disconnected and no QR code is in state
+      if (!(liveStatus?.connected ?? polledStatus?.connected) && !liveQR && !query.state.data?.qr) {
+        return 3000;
+      }
+      return false;
+    },
     select: (data) => {
-      if (liveQR === undefined && data.qr) setLiveQR(data.qr);
+      if (data.qr && !liveQR) setLiveQR(data.qr);
       return data;
     },
   });
