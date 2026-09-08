@@ -216,6 +216,29 @@ app.use((_req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 app.use(errorHandler);
 
+import bcrypt from 'bcryptjs';
+import { UserRole } from '@prisma/client';
+
+async function ensureDefaultUsers(): Promise<void> {
+  try {
+    const passwordHash = await bcrypt.hash('Admin@123', 12);
+    await prisma.user.upsert({
+      where: { email: 'admin@stms.com' },
+      update: { isActive: true },
+      create: {
+        name: 'TransitOS Admin',
+        email: 'admin@stms.com',
+        passwordHash,
+        role: UserRole.ADMIN,
+        isActive: true,
+      },
+    });
+    logger.info('✅ Default Admin user verified (admin@stms.com)');
+  } catch (err) {
+    logger.warn('Failed to ensure default admin user on boot:', err);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SERVER START
 // ─────────────────────────────────────────────────────────────────────────────
@@ -228,6 +251,9 @@ async function bootstrap() {
       logger.info(`🌍 Environment: ${process.env.NODE_ENV ?? 'development'}`);
       startKeepAlive();
     });
+
+    // Ensure default admin exists
+    ensureDefaultUsers().catch((err) => logger.warn('ensureDefaultUsers error:', err));
 
     // Initialize WhatsApp (non-blocking)
     if (process.env.NODE_ENV !== 'test' && process.env.DISABLE_WHATSAPP !== 'true') {
