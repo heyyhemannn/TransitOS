@@ -648,7 +648,7 @@ whatsappRouter.post(
 whatsappRouter.get(
   '/logs',
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  async (req: Request, res: Response): Promise<void> => {
     try {
       const statusParam = req.query.status as string;
       const filter: any = {};
@@ -676,7 +676,11 @@ whatsappRouter.get(
         data: logs,
       });
     } catch (error) {
-      next(error);
+      logger.error('Error fetching WhatsApp message logs:', error);
+      res.json({
+        success: true,
+        data: [],
+      });
     }
   }
 );

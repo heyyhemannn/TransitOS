@@ -458,9 +458,21 @@ export default function WhatsAppPage() {
                   <div className="flex flex-col items-center justify-center py-10">
                     <QrCode className="h-12 w-12 text-muted-foreground animate-pulse mb-3" />
                     <p className="text-sm font-semibold text-muted-foreground">Generating connection key…</p>
-                    <Button size="sm" variant="ghost" onClick={handleManualRefresh} className="mt-4 text-xs font-bold gap-1 text-primary">
-                      <RefreshCw className="h-3 w-3" /> Retry
-                    </Button>
+                    <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+                      <Button size="sm" variant="outline" onClick={handleManualRefresh} className="text-xs font-bold gap-1">
+                        <RefreshCw className="h-3 w-3" /> Retry Sync
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => resetSessionMutation.mutate()}
+                        disabled={resetSessionMutation.isPending}
+                        className="text-xs font-bold gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                      >
+                        {resetSessionMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                        Reset & Fresh QR
+                      </Button>
+                    </div>
                   </div>
                 )}
                 <div className="text-xs text-muted-foreground max-w-xs leading-relaxed">
