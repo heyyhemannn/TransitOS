@@ -1,4 +1,3 @@
-/// <reference types="node" />
 import axios, { type AxiosError, type InternalAxiosRequestConfig, type AxiosResponse } from 'axios';
 import { useAuthStore } from '@/lib/auth';
 

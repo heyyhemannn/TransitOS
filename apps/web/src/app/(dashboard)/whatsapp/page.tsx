@@ -1,4 +1,3 @@
-/// <reference types="node" />
 'use client';
 
 import * as React from 'react';
