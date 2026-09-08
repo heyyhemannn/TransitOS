@@ -21,6 +21,8 @@ import { initWhatsApp, getWhatsAppDebugInfo } from './services/whatsappService';
 import { initScheduler } from './services/schedulerService';
 import { logger } from './lib/logger';
 import { startKeepAlive } from './lib/keepAlive';
+import bcrypt from 'bcryptjs';
+import { UserRole } from '@prisma/client';
 import { prisma } from './lib/prisma';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,9 +218,6 @@ app.use((_req, res) => {
 // GLOBAL ERROR HANDLER
 // ─────────────────────────────────────────────────────────────────────────────
 app.use(errorHandler);
-
-import bcrypt from 'bcryptjs';
-import { UserRole } from '@prisma/client';
 
 async function ensureDefaultUsers(): Promise<void> {
   try {
