@@ -122,16 +122,24 @@ whatsappRouter.get(
 whatsappRouter.get(
   '/qr',
   requireRole(UserRole.ADMIN, UserRole.MANAGER),
-  async (req: Request, res: Response): Promise<void> => {
-    let qr = getWhatsAppQR();
-    if (!qr && !whatsappService.isReady && !whatsappService.isConnecting) {
-      logger.info('GET /whatsapp/qr requested while offline — auto-triggering Baileys initialization...');
-      whatsappService.initialize().catch((err) => logger.error('Auto-init from /qr failed:', err));
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      let qr = getWhatsAppQR();
+      if (!qr && !whatsappService.isReady && !whatsappService.isConnecting) {
+        logger.info('GET /whatsapp/qr requested while offline — auto-triggering Baileys initialization...');
+        whatsappService.initialize().catch((err) => logger.error('Auto-init from /qr failed:', err));
+      }
+      res.json({
+        success: true,
+        data: { qr },
+      });
+    } catch (error) {
+      logger.error('Error fetching WhatsApp QR:', error);
+      res.json({
+        success: true,
+        data: { qr: null },
+      });
     }
-    res.json({
-      success: true,
-      data: { qr },
-    });
   },
 );
 

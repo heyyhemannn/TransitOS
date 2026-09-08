@@ -1053,7 +1053,7 @@ class WhatsAppService {
         this.sock.ev.removeAllListeners('creds.update');
         this.sock.ev.removeAllListeners('message-receipt.update');
         this.sock.ev.removeAllListeners('messages.update');
-        await this.sock.logout();
+        await this.sock.logout().catch(() => {});
         this.sock.end(undefined);
       } catch (err) {
         logger.warn('Error during WhatsApp logout cleanup:', err);
@@ -1068,6 +1068,8 @@ class WhatsAppService {
     this.connectedPhone = null;
     this.qrBase64 = null;
     broadcastSSE('status', { connected: false, phone: null });
+    // Auto-generate fresh QR code immediately
+    this.initialize().catch((err) => logger.error('Post-logout init error:', err));
   }
 }
 
