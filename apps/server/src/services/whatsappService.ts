@@ -35,14 +35,14 @@ const baileysLogger = P(
         const time = parsed.time ? new Date(parsed.time).toISOString() : new Date().toISOString();
         const levelVal = parsed.level;
         const levelName = levelVal === 30 ? 'INFO' : levelVal === 40 ? 'WARN' : levelVal >= 50 ? 'ERROR' : 'DEBUG';
-        
+
         const extra: Record<string, any> = {};
         for (const [key, val] of Object.entries(parsed)) {
           if (!['level', 'time', 'msg', 'pid', 'hostname', 'service', 'v'].includes(key)) {
             extra[key] = val;
           }
         }
-        
+
         const extraStr = Object.keys(extra).length > 0 ? ` | Extra: ${JSON.stringify(extra)}` : '';
         const formattedMsg = `${time} [${levelName}]: ${parsed.msg || ''}${extraStr}`;
         baileysLogsBuffer.push(formattedMsg);
@@ -325,7 +325,7 @@ class WhatsAppService {
         this.sock.ev.removeAllListeners('message-receipt.update');
         this.sock.ev.removeAllListeners('messages.update');
         this.sock.end(undefined);
-      } catch {}
+      } catch { }
       this.sock = null;
     }
     const { clearSession } = await usePrismaAuthState();
@@ -518,7 +518,7 @@ class WhatsAppService {
       if (isConnErr && retryCount < 1) {
         logger.warn(`Connection drop detected (${errMsg}). Reconnecting and retrying send to ${phone}...`);
         this.isReady = false;
-        await this.initialize().catch(() => {});
+        await this.initialize().catch(() => { });
         await new Promise((resolve) => setTimeout(resolve, 2000));
         return this.sendMessage(phone, body, studentId, type, retryCount + 1);
       }
@@ -635,7 +635,7 @@ class WhatsAppService {
       const isConnErr = errMsg.toLowerCase().includes('connection') || errMsg.toLowerCase().includes('closed') || errMsg.toLowerCase().includes('socket') || errMsg.toLowerCase().includes('stream');
       if (isConnErr && retryCount < 1) {
         this.isReady = false;
-        await this.initialize().catch(() => {});
+        await this.initialize().catch(() => { });
         await new Promise((resolve) => setTimeout(resolve, 2000));
         return this.sendMessageWithPayment(phone, body, studentId, type, paymentId, retryCount + 1);
       }
@@ -673,7 +673,7 @@ class WhatsAppService {
       try {
         const { generateReceipt } = await import('./receiptService');
         receiptUrl = await generateReceipt(paymentId);
-        
+
         // Re-fetch payment to get the updated record (with receiptUrl)
         const updatedPayment = await prisma.payment.findUnique({
           where: { id: paymentId },
@@ -689,15 +689,15 @@ class WhatsAppService {
 
     const paidDate = payment.paidAt
       ? new Date(payment.paidAt).toLocaleDateString('en-IN', {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        })
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })
       : new Date().toLocaleDateString('en-IN', {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        });
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
 
     const shortMonth = new Date(payment.year, payment.month - 1)
       .toLocaleString('en-US', { month: 'short' })
@@ -1053,7 +1053,7 @@ class WhatsAppService {
         this.sock.ev.removeAllListeners('creds.update');
         this.sock.ev.removeAllListeners('message-receipt.update');
         this.sock.ev.removeAllListeners('messages.update');
-        await this.sock.logout().catch(() => {});
+        await this.sock.logout().catch(() => { });
         this.sock.end(undefined);
       } catch (err) {
         logger.warn('Error during WhatsApp logout cleanup:', err);
