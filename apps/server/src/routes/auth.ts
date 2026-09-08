@@ -24,10 +24,10 @@ const loginSchema = z.object({
 // RATE LIMITING MIDDLEWARE
 // ─────────────────────────────────────────────────────────────────────────────
 async function loginRateLimiter(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown';
   const key = `ratelimit:login:${ip}`;
   const windowMs = 15 * 60 * 1000; // 15 minutes
-  const maxAttempts = 20;
+  const maxAttempts = 200;
 
   try {
     const { count, ttl } = await incrementRateLimit(key, windowMs);
