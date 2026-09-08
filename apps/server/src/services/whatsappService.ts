@@ -143,20 +143,43 @@ class WhatsAppService {
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
         getMessage: async (key) => {
+          // 1. Check in-memory cache first (fastest path)
           if (key.id && sentMessageCache.has(key.id)) {
             return sentMessageCache.get(key.id);
           }
+
           if (key.id) {
             try {
-              const msg = await prisma.whatsAppMessage.findFirst({
-                where: { errorMessage: { contains: key.id } },
+              // 2. Look up by wamId column (new schema)
+              let msg = await prisma.whatsAppMessage.findFirst({
+                where: { wamId: key.id },
               });
-              if (msg) {
-                return { conversation: msg.body };
+
+              // 3. Fallback: old records stored wamId inside errorMessage as "[WAM_ID: xxx]"
+              if (!msg) {
+                msg = await prisma.whatsAppMessage.findFirst({
+                  where: { errorMessage: { contains: key.id } },
+                });
               }
-            } catch {}
+
+              if (msg) {
+                // For PDF receipt log entries, return the body as caption text
+                const bodyText = msg.body.startsWith('[PDF') ? '' : msg.body;
+                if (bodyText) {
+                  // Cache it so future retries don't need another DB lookup
+                  sentMessageCache.set(key.id, { conversation: bodyText });
+                  return { conversation: bodyText };
+                }
+              }
+            } catch (err) {
+              logger.warn('[getMessage] DB lookup failed:', err);
+            }
           }
-          return { conversation: '' };
+
+          // 4. Last resort — return empty so WhatsApp doesn't crash;
+          //    recipient may still see "Waiting" for very old messages
+          //    but this prevents new messages from failing.
+          return undefined;
         },
       });
 
