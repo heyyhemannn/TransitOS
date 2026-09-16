@@ -383,8 +383,10 @@ export default function PaymentsPage() {
     },
     onSuccess: () => {
       playChimeSound();
-      toast({ title: 'Success', description: 'Manual payments recorded successfully', variant: 'success' });
+      toast({ title: 'Success', description: 'Manual payment recorded successfully', variant: 'success' });
       queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['unpaid-students-list'] });
+      queryClient.invalidateQueries({ queryKey: ['students-selection-list'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       queryClient.invalidateQueries({ queryKey: ['monthly-chart'] });
       queryClient.invalidateQueries({ queryKey: ['recent-payments-feed'] });
@@ -394,7 +396,7 @@ export default function PaymentsPage() {
     onError: (err: any) => {
       toast({
         title: 'Submission failed',
-        description: err.response?.data?.error || 'Failed to record manual payment',
+        description: err.response?.data?.error || err.message || 'Failed to record manual payment',
         variant: 'destructive',
       });
     },

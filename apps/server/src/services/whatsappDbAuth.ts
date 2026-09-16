@@ -65,18 +65,20 @@ async function backupToDb(): Promise<void> {
 
     const diskFileSet = new Set(diskFiles);
 
-    // 1. Upsert files currently on disk
-    await Promise.all(
-      diskFiles.map(async (file) => {
-        const filePath = path.join(SESSION_DIR, file);
+    // 1. Upsert files currently on disk sequentially to avoid connection pool congestion
+    for (const file of diskFiles) {
+      const filePath = path.join(SESSION_DIR, file);
+      try {
         const content = fs.readFileSync(filePath, 'utf-8');
         await prisma.whatsAppSession.upsert({
           where: { key: file },
           update: { value: content },
           create: { key: file, value: content },
         });
-      })
-    );
+      } catch (upsertErr) {
+        logger.warn(`[WA Auth] Failed to upsert session file ${file}:`, upsertErr);
+      }
+    }
 
     // 2. Remove consumed/deleted keys from Postgres that no longer exist on disk
     const dbRows = await prisma.whatsAppSession.findMany({ select: { key: true } });

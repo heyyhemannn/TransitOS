@@ -268,10 +268,11 @@ paymentsRouter.post(
             }
 
             // Format transaction ID to prevent unique constraint conflicts for collective payments
-            const finalTxId = body.transactionId
+            const cleanTxId = body.transactionId && body.transactionId.trim() !== '' ? body.transactionId.trim() : null;
+            const finalTxId = cleanTxId
               ? (body.students.length > 1
-                  ? `${body.transactionId}_${alloc.studentId}`
-                  : body.transactionId)
+                  ? `${cleanTxId}_${alloc.studentId}`
+                  : cleanTxId)
               : null;
 
             // Check if a payment record already exists for this student/month/year
@@ -285,6 +286,19 @@ paymentsRouter.post(
               },
             });
 
+            // If a specific transaction ID is provided, verify it's not already used by another student's record
+            if (finalTxId) {
+              const duplicateTx = await tx.payment.findFirst({
+                where: {
+                  transactionId: finalTxId,
+                  NOT: existingForStudent ? { id: existingForStudent.id } : undefined,
+                },
+              });
+              if (duplicateTx) {
+                throw new Error(`Transaction ID "${cleanTxId}" is already recorded for another payment.`);
+              }
+            }
+
             let payment;
             if (existingForStudent) {
               payment = await tx.payment.update({
@@ -292,10 +306,10 @@ paymentsRouter.post(
                 data: {
                   amount: amountPaise,
                   paidAt: actualNow,
-                  transactionId: finalTxId || existingForStudent.transactionId,
+                  transactionId: finalTxId ?? existingForStudent.transactionId ?? null,
                   method: body.method,
                   status: PaymentStatus.PAID,
-                  remarks: body.remarks || existingForStudent.remarks || 'Manual Payment Entry',
+                  remarks: body.remarks?.trim() || existingForStudent.remarks || 'Manual Payment Entry',
                   createdBy: req.user?.id,
                 },
               });
@@ -310,7 +324,7 @@ paymentsRouter.post(
                   transactionId: finalTxId,
                   method: body.method,
                   status: PaymentStatus.PAID,
-                  remarks: body.remarks || 'Manual Payment Entry',
+                  remarks: body.remarks?.trim() || 'Manual Payment Entry',
                   createdBy: req.user?.id,
                 },
               });
@@ -343,8 +357,8 @@ paymentsRouter.post(
           }
         },
         {
-          maxWait: 10000,
-          timeout: 20000,
+          maxWait: 15000,
+          timeout: 30000,
         }
       );
 
