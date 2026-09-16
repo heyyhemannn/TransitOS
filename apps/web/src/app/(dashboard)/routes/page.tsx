@@ -96,7 +96,7 @@ export default function RoutesPage() {
       const res = await api.get<{ data: any[] }>('/routes?includeStudents=true');
       return res.data.data;
     },
-    refetchInterval: 5000,
+    staleTime: 30000,
   });
 
   // 2. Fetch Driver Users
@@ -106,6 +106,7 @@ export default function RoutesPage() {
       const res = await api.get<{ data: DriverUser[] }>('/auth/users?role=DRIVER');
       return res.data.data;
     },
+    staleTime: 60000,
   });
 
   // 3. Create Route Mutation

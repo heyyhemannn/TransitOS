@@ -122,7 +122,7 @@ export default function StudentsPage() {
       }>('/students', { params });
       return res.data.data;
     },
-    refetchInterval: 5000,
+    staleTime: 20000,
   });
 
   // 2. Fetch active Routes for selection
@@ -132,6 +132,7 @@ export default function StudentsPage() {
       const res = await api.get<{ data: any[] }>('/routes');
       return res.data.data;
     },
+    staleTime: 60000,
   });
 
   // Forms setup

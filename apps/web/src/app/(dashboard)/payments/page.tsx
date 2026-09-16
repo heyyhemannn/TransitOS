@@ -243,10 +243,10 @@ export default function PaymentsPage() {
       }>('/payments', { params });
       return res.data.data;
     },
-    refetchInterval: 5000,
+    staleTime: 15000,
   });
 
-  // 2. Fetch active students for dropdown selection (only unpaid for the selected billing month/year)
+  // 2. Fetch active students for dropdown selection (only when dialog is open)
   const { data: students } = useQuery({
     queryKey: ['students-selection-list', manualMonth, manualYear],
     queryFn: async () => {
@@ -255,6 +255,8 @@ export default function PaymentsPage() {
       );
       return res.data.data.students;
     },
+    enabled: manualOpen,
+    staleTime: 30000,
   });
 
   // 2b. Fetch active unpaid students for the main page selected month/year
@@ -266,7 +268,7 @@ export default function PaymentsPage() {
       );
       return res.data.data.students;
     },
-    refetchInterval: 5000,
+    staleTime: 30000,
   });
 
   // Filter and sort unpaid list in-memory for real-time updates
