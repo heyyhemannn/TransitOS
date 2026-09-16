@@ -30,7 +30,8 @@ const SESSION_DIR = path.resolve(
   process.env.WHATSAPP_SESSION_PATH || './whatsapp-session'
 );
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Cache of file contents already saved to DB to prevent continuous DB queries
+const savedContentCache = new Map<string, string>();
 
 /** Restore session files from Postgres to disk (called on server startup). */
 async function restoreFromDb(): Promise<void> {
@@ -48,6 +49,7 @@ async function restoreFromDb(): Promise<void> {
     for (const row of rows) {
       const filePath = path.join(SESSION_DIR, row.key);
       fs.writeFileSync(filePath, row.value, 'utf-8');
+      savedContentCache.set(row.key, row.value);
     }
     logger.info(`[WA Auth] Restored ${rows.length} session file(s) from Postgres to disk.`);
   } catch (err) {
@@ -55,7 +57,7 @@ async function restoreFromDb(): Promise<void> {
   }
 }
 
-/** Backup all session files from disk to Postgres (called after every save). */
+/** Backup modified session files from disk to Postgres (only dirty files). */
 async function backupToDb(): Promise<void> {
   try {
     if (!fs.existsSync(SESSION_DIR)) return;
@@ -64,52 +66,60 @@ async function backupToDb(): Promise<void> {
     if (diskFiles.length === 0) return;
 
     const diskFileSet = new Set(diskFiles);
+    const changedFiles: { file: string; content: string }[] = [];
 
-    // 1. Upsert files currently on disk sequentially to avoid connection pool congestion
     for (const file of diskFiles) {
       const filePath = path.join(SESSION_DIR, file);
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
+        if (savedContentCache.get(file) !== content) {
+          changedFiles.push({ file, content });
+        }
+      } catch {
+        // Ignore transient file read errors
+      }
+    }
+
+    // If nothing changed, exit immediately with 0 DB queries!
+    if (changedFiles.length === 0) {
+      return;
+    }
+
+    // Upsert only dirty files
+    for (const { file, content } of changedFiles) {
+      try {
         await prisma.whatsAppSession.upsert({
           where: { key: file },
           update: { value: content },
           create: { key: file, value: content },
         });
+        savedContentCache.set(file, content);
       } catch (upsertErr) {
         logger.warn(`[WA Auth] Failed to upsert session file ${file}:`, upsertErr);
       }
     }
 
-    // 2. Remove consumed/deleted keys from Postgres that no longer exist on disk
-    const dbRows = await prisma.whatsAppSession.findMany({ select: { key: true } });
-    const staleKeys = dbRows.map(r => r.key).filter(k => !diskFileSet.has(k));
-    if (staleKeys.length > 0) {
-      await prisma.whatsAppSession.deleteMany({
-        where: { key: { in: staleKeys } },
-      });
-      logger.info(`[WA Auth] Removed ${staleKeys.length} consumed key(s) from Postgres.`);
+    // Clean up removed keys
+    for (const key of Array.from(savedContentCache.keys())) {
+      if (!diskFileSet.has(key)) {
+        savedContentCache.delete(key);
+        await prisma.whatsAppSession.deleteMany({ where: { key } }).catch(() => {});
+      }
     }
 
-    logger.info(`[WA Auth] Backed up ${diskFiles.length} session file(s) to Postgres.`);
+    logger.info(`[WA Auth] Backed up ${changedFiles.length} modified session file(s) to Postgres.`);
   } catch (err) {
     logger.error('[WA Auth] Failed to backup session to Postgres:', err);
   }
 }
 
-/**
- * Debounced backup: during message sending Baileys calls keys.set() many times
- * in rapid succession (one per Signal pre-key / session key). Without debouncing
- * this floods Postgres with dozens of concurrent upsert batches per message,
- * causing timeout / P2002 errors that surface as 500s to the frontend.
- * We coalesce all writes within a 3-second window into a single backup call.
- */
 let backupDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleBackup(): void {
   if (backupDebounceTimer) clearTimeout(backupDebounceTimer);
   backupDebounceTimer = setTimeout(() => {
     backupDebounceTimer = null;
     backupToDb().catch(err => logger.error('[WA Auth] Debounced backup failed:', err));
-  }, 3000); // wait 3s for burst to settle before writing
+  }, 5000); // 5s debounce
 }
 
 // ── Main exported function ────────────────────────────────────────────────────

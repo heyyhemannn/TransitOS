@@ -17,12 +17,8 @@ function buildDatabaseUrl(): string {
   const raw = process.env.DATABASE_URL ?? '';
   try {
     const url = new URL(raw);
-    if (!url.searchParams.has('connection_limit') || url.searchParams.get('connection_limit') === '1') {
-      url.searchParams.set('connection_limit', '10');
-    }
-    if (!url.searchParams.has('pool_timeout')) {
-      url.searchParams.set('pool_timeout', '30');
-    }
+    url.searchParams.set('connection_limit', '15');
+    url.searchParams.set('pool_timeout', '45');
     if (!url.searchParams.has('pgbouncer')) {
       url.searchParams.set('pgbouncer', 'true');
     }
