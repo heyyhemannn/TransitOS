@@ -133,13 +133,14 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response, 
       { expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN ?? '30d') as any }
     );
 
-    // Save refresh token to Redis with 30-day expiration (best-effort — never blocks login)
+    // Save refresh token to Redis with 30-day expiration (best-effort async — never blocks login)
     try {
       const redis = getRedis();
-      await redis.set(`refresh:${user.id}`, refreshToken, { ex: 30 * 24 * 60 * 60 });
+      redis.set(`refresh:${user.id}`, refreshToken, { ex: 30 * 24 * 60 * 60 }).catch((redisError: any) => {
+        logger.warn(`[Auth] Async Redis write failed for user ${user.id}:`, redisError);
+      });
     } catch (redisError) {
-      logger.warn(`[Auth] Failed to store refresh token in Redis for user ${user.id} — proceeding anyway:`, redisError);
-      // Non-fatal: JWT signature remains the source of truth
+      logger.warn(`[Auth] Failed to get Redis for user ${user.id}:`, redisError);
     }
 
     // Set refresh token in httpOnly cookie
@@ -245,13 +246,14 @@ authRouter.post('/refresh', async (req: Request, res: Response, next: NextFuncti
       { expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN ?? '30d') as any }
     );
 
-    // Rotate Redis token (best-effort — never blocks refresh)
+    // Rotate Redis token (best-effort async — never blocks refresh)
     try {
       const redis = getRedis();
-      await redis.set(`refresh:${user.id}`, newRefreshToken, { ex: 30 * 24 * 60 * 60 });
+      redis.set(`refresh:${user.id}`, newRefreshToken, { ex: 30 * 24 * 60 * 60 }).catch((redisError: any) => {
+        logger.warn(`[Auth] Async Redis write failed for user ${user.id}:`, redisError);
+      });
     } catch (redisError) {
-      logger.warn(`[Auth] Failed to rotate refresh token in Redis for user ${user.id} — proceeding anyway:`, redisError);
-      // Non-fatal: JWT signature remains the source of truth
+      logger.warn(`[Auth] Failed to get Redis for user ${user.id}:`, redisError);
     }
 
     // Set rotated cookie
