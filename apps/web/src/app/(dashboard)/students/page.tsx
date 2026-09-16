@@ -909,7 +909,7 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 https://transitos.vercel.app/pay-confirm
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+*_If already paid, please upload the screenshot at https://transitos.vercel.app/pay-confirm or directly share on WhatsApp._*
 
 Thank you,
 [Business Name]`}
@@ -924,7 +924,7 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 https://transitos.vercel.app/pay-confirm
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+*_If already paid, please upload the screenshot at https://transitos.vercel.app/pay-confirm or directly share on WhatsApp (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee._*
 
 Best regards,
 [Business Name]`}
@@ -939,7 +939,7 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 https://transitos.vercel.app/pay-confirm
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional to prevent service disruption.)
+*_If already paid, please upload the screenshot at https://transitos.vercel.app/pay-confirm or directly share on WhatsApp (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee to prevent service disruption._*
 
 Best regards,
 [Business Name]`}

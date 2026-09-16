@@ -1129,7 +1129,7 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+*_If already paid, please upload the screenshot at ${PAY_CONFIRM_URL} or directly share on WhatsApp._*
 
 Thank you,
 {businessName}`,
@@ -1145,7 +1145,7 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-"_***If already paid, please submit or share the payment proof with us so we can verify (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee.***_"
+*_If already paid, please upload the screenshot at ${PAY_CONFIRM_URL} or directly share on WhatsApp (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee._*
 
 Thank you,
 {businessName}`,
@@ -1161,7 +1161,7 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-"_***If already paid, please submit or share the payment proof with us so we can verify (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee to prevent service disruption.***_"
+*_If already paid, please upload the screenshot at ${PAY_CONFIRM_URL} or directly share on WhatsApp (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee to prevent service disruption._*
 
 Thank you,
 {businessName}`,
@@ -1177,7 +1177,7 @@ Please pay immediately to ensure uninterrupted service:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+*_If already paid, please upload the screenshot at ${PAY_CONFIRM_URL} or directly share on WhatsApp. If not paid, please pay immediately to ensure uninterrupted service._*
 
 Best regards,
 {businessName}`,
@@ -1224,7 +1224,7 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+*_If already paid, please upload the screenshot at ${PAY_CONFIRM_URL} or directly share on WhatsApp._*
 
 Thank you,
 {businessName}`,
@@ -1243,7 +1243,7 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-"_***If already paid, please submit or share the payment proof with us so we can verify (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee.***_"
+*_If already paid, please upload the screenshot at ${PAY_CONFIRM_URL} or directly share on WhatsApp (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee._*
 
 Thank you,
 {businessName}`,
@@ -1262,7 +1262,7 @@ To pay and confirm:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-"_***If already paid, please submit or share the payment proof with us so we can verify (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee to prevent service disruption.***_"
+*_If already paid, please upload the screenshot at ${PAY_CONFIRM_URL} or directly share on WhatsApp (or ignore this message if the system has not updated your payment yet). If not paid, we kindly request you to pay the pending fee to prevent service disruption._*
 
 Thank you,
 {businessName}`,
@@ -1281,7 +1281,7 @@ Please pay immediately to ensure uninterrupted service:
 2️⃣ Confirm your payment here:
 👉 ${PAY_CONFIRM_URL}
 
-(Enter your Transaction ID/Ref No or upload a screenshot. Uploading screenshot is optional.)
+*_If already paid, please upload the screenshot at ${PAY_CONFIRM_URL} or directly share on WhatsApp. If not paid, please pay immediately to ensure uninterrupted service._*
 
 Best regards,
 {businessName}`,
