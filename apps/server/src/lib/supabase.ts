@@ -6,18 +6,31 @@ if (!globalThis.WebSocket) {
   globalThis.WebSocket = ws as any;
 }
 
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;  
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || '';  
 // Use SERVICE key (not anon key) for storage uploads
 
-export const supabase = createClient(supabaseUrl, supabaseKey, {
-  auth: { persistSession: false },
-});
+let _supabase: ReturnType<typeof createClient> | null = null;
 
-// For backward compatibility:
 export function getSupabase() {
-  return supabase;
+  if (!_supabase) {
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Supabase credentials missing: set SUPABASE_URL and SUPABASE_SERVICE_KEY');
+    }
+    _supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false },
+    });
+  }
+  return _supabase;
 }
+
+export const supabase = (supabaseUrl && supabaseKey)
+  ? createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } })
+  : (new Proxy({}, {
+      get(_target, prop) {
+        return (getSupabase() as any)[prop];
+      }
+    }) as ReturnType<typeof createClient>);
 
 /**
  * Upload a buffer to Supabase Storage and return the public URL.
